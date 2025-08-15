@@ -5,7 +5,7 @@ SymPyベースのセキュリティ機能
 """
 
 import re
-from typing import Any, Dict, List, Set, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 # 型エイリアス (parser.pyから)
 SExpression = Union[str, int, float, List['SExpression']]
