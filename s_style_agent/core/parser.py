@@ -9,6 +9,10 @@ from typing import Any, List, Union
 from langchain_core.runnables import RunnableLambda
 from langsmith import traceable
 
+# 型エイリアスの定義
+SExpression = Union[str, int, float, List['SExpression']]
+AtomType = Union[str, int, float]
+
 
 class SExpressionParseError(Exception):
     """S式パースエラー"""
@@ -23,8 +27,7 @@ def tokenize_s_expression(s_expr_str: str) -> List[str]:
     return tokens
 
 
-@traceable(name="atom_parser")
-def parse_atom(token: str) -> Union[str, int, float]:
+def parse_atom(token: str) -> AtomType:
     """トークンを適切なPythonの型に変換"""
     if token.startswith('"') and token.endswith('"'):
         return token[1:-1]  # 文字列リテラルから引用符を削除
@@ -34,11 +37,10 @@ def parse_atom(token: str) -> Union[str, int, float]:
         try:
             return float(token)
         except ValueError:
-            return token  # シンボルとして扱う
+            return token  # シンボルとして扱う  # シンボルとして扱う
 
 
-@traceable(name="parse_s_expression_recursive")
-def parse_from_tokens(tokens: List[str]) -> Any:
+def parse_from_tokens(tokens: List[str]) -> SExpression:
     """トークンリストから再帰的にS式を解析"""
     if not tokens:
         raise SExpressionParseError('Unexpected EOF while reading')
@@ -46,7 +48,7 @@ def parse_from_tokens(tokens: List[str]) -> Any:
     token = tokens.pop(0)
     
     if token == '(':
-        expr_list = []
+        expr_list: List[SExpression] = []
         while tokens and tokens[0] != ')':
             expr_list.append(parse_from_tokens(tokens))
         if not tokens or tokens[0] != ')':
@@ -59,8 +61,7 @@ def parse_from_tokens(tokens: List[str]) -> Any:
         return parse_atom(token)
 
 
-@traceable(name="parse_s_expression")
-def parse_s_expression(s_expr_str: str) -> Any:
+def parse_s_expression(s_expr_str: str) -> SExpression:
     """
     S式文字列を解析し、Pythonのリストとアトムの構造に変換
     

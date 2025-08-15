@@ -11,7 +11,7 @@ from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from langsmith import traceable
 
-from .parser import parse_s_expression
+from .parser import parse_s_expression, SExpression
 from ..tools.security_sympy import security_validator, safe_sympy_calculator
 
 
@@ -82,7 +82,7 @@ class AsyncContextualEvaluator:
         self.task_context = context
     
     @traceable(name="async_evaluate_with_context")
-    async def evaluate_with_context(self, expr: Any, env: AsyncEnvironment, 
+    async def evaluate_with_context(self, expr: SExpression, env: AsyncEnvironment, 
                                   task_id: Optional[int] = None) -> Any:
         """文脈を考慮してS式を非同期評価"""
         if task_id is None:
@@ -129,7 +129,7 @@ class AsyncContextualEvaluator:
         
         self._active_tasks.clear()
     
-    def _needs_contextual_evaluation(self, expr: Any) -> bool:
+    def _needs_contextual_evaluation(self, expr: SExpression) -> bool:
         """文脈評価が必要かどうかを判定"""
         if not isinstance(expr, list) or len(expr) == 0:
             return False
@@ -139,7 +139,7 @@ class AsyncContextualEvaluator:
         return op in ['if', 'cond', 'when', 'unless']
     
     @traceable(name="async_contextual_llm_evaluation")
-    async def _evaluate_contextually_async(self, expr: Any, env: AsyncEnvironment, basic_result: Any) -> Any:
+    async def _evaluate_contextually_async(self, expr: SExpression, env: AsyncEnvironment, basic_result: Any) -> Any:
         """LLMを使用した非同期文脈考慮評価"""
         bindings = await env.get_all_bindings()
         
@@ -169,7 +169,7 @@ class AsyncContextualEvaluator:
             return basic_result
     
     @traceable(name="async_basic_s_expression_evaluation")
-    async def _evaluate_basic_async(self, expr: Any, env: AsyncEnvironment, task_id: int) -> Any:
+    async def _evaluate_basic_async(self, expr: SExpression, env: AsyncEnvironment, task_id: int) -> Any:
         """基本的なS式の非同期評価"""
         # 記録
         bindings = await env.get_all_bindings()
@@ -284,7 +284,7 @@ class AsyncContextualEvaluator:
         else:
             raise NotImplementedError(f"Unknown operation: {op}")
     
-    async def _process_binding(self, var: str, val_expr: Any, 
+    async def _process_binding(self, var: str, val_expr: SExpression, 
                              parent_env: AsyncEnvironment, 
                              new_env: AsyncEnvironment, 
                              task_id: int) -> None:

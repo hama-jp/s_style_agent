@@ -6,6 +6,9 @@ SymPyベースのセキュリティ機能
 
 import re
 from typing import Any, Dict, List, Set, Union
+
+# 型エイリアス (parser.pyから)
+SExpression = Union[str, int, float, List['SExpression']]
 import sympy as sp
 from sympy.parsing.sympy_parser import parse_expr
 from sympy import sympify, N, symbols, simplify, expand, factor, solve, diff, integrate
@@ -15,7 +18,7 @@ from langsmith import traceable
 class SafeSymPyCalculator:
     """SymPyベースの安全な計算実行クラス"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         # 許可される関数と定数
         self.allowed_functions = {
             # 基本演算
@@ -123,7 +126,7 @@ class SafeSymPyCalculator:
             raise ValueError(f"SymPy計算エラー: {str(e)}")
     
     @traceable(name="safe_sympy_advanced")
-    def advanced_calculate(self, expression: str, operation: str, **kwargs) -> str:
+    def advanced_calculate(self, expression: str, operation: str, **kwargs: Any) -> str:
         """高度な数式処理
         
         Args:
@@ -176,7 +179,7 @@ class SafeSymPyCalculator:
 class ToolWhitelist:
     """ツール許可リスト管理"""
     
-    def __init__(self, allowed_tools: Set[str] = None):
+    def __init__(self, allowed_tools: Optional[Set[str]] = None) -> None:
         # デフォルトで許可するツール
         self.allowed_tools = allowed_tools or {
             'notify',
@@ -223,19 +226,19 @@ class ToolWhitelist:
 class SecurityValidator:
     """包括的なセキュリティ検証"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.calculator = SafeSymPyCalculator()
         self.whitelist = ToolWhitelist()
     
     @traceable(name="security_validator_validate_s_expression")
-    def validate_s_expression(self, s_expr: Any, is_admin: bool = False) -> tuple[bool, str]:
+    def validate_s_expression(self, s_expr: SExpression, is_admin: bool = False) -> tuple[bool, str]:
         """S式全体のセキュリティ検証"""
         try:
             return self._validate_recursive(s_expr, is_admin)
         except Exception as e:
             return False, f"セキュリティ検証エラー: {str(e)}"
     
-    def _validate_recursive(self, expr: Any, is_admin: bool) -> tuple[bool, str]:
+    def _validate_recursive(self, expr: SExpression, is_admin: bool) -> tuple[bool, str]:
         """再帰的にS式を検証"""
         if isinstance(expr, str):
             # 文字列は基本的に安全

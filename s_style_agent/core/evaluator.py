@@ -12,7 +12,7 @@ from langsmith import traceable
 # from langgraph.graph import Graph
 # from langgraph.graph.state import CompiledGraph
 
-from .parser import parse_s_expression
+from .parser import parse_s_expression, SExpression
 from ..tools.security_sympy import security_validator, safe_sympy_calculator
 
 
@@ -71,24 +71,27 @@ class ContextualEvaluator:
         self.task_context = context
     
     @traceable(name="evaluate_with_context")
-    def evaluate_with_context(self, expr: Any, env: Environment) -> Any:
+    def evaluate_with_context(self, expr: SExpression, env: Environment) -> Any:
         """文脈を考慮してS式を評価"""
-        # セキュリティ検証を最初に実行
-        is_valid, error_msg = security_validator.validate_s_expression(expr, self.is_admin)
-        if not is_valid:
-            raise SecurityError(f"セキュリティ検証失敗: {error_msg}")
-        
-        # 基本評価
-        result = self._evaluate_basic(expr, env)
-        
-        # 複雑な評価が必要な場合は LLM を使用
-        if self._needs_contextual_evaluation(expr):
-            contextual_result = self._evaluate_contextually(expr, env, result)
-            return contextual_result
-        
-        return result
-    
-    def _needs_contextual_evaluation(self, expr: Any) -> bool:
+        try:
+            # セキュリティ検証を最初に実行
+            is_valid, error_msg = security_validator.validate_s_expression(expr, self.is_admin)
+            if not is_valid:
+                raise SecurityError(f"セキュリティ検証失敗: {error_msg}")
+            
+            # 基本評価
+            result = self._evaluate_basic(expr, env)
+            
+            # 複雑な評価が必要な場合は LLM を使用
+            if self._needs_contextual_evaluation(expr):
+                contextual_result = self._evaluate_contextually(expr, env, result)
+                return contextual_result
+            
+            return result
+        except Exception:
+            raise
+
+    def _needs_contextual_evaluation(self, expr: SExpression) -> bool:
         """文脈評価が必要かどうかを判定"""
         if not isinstance(expr, list) or len(expr) == 0:
             return False
@@ -98,7 +101,7 @@ class ContextualEvaluator:
         return op in ['if', 'cond', 'when', 'unless']
     
     @traceable(name="contextual_llm_evaluation")
-    def _evaluate_contextually(self, expr: Any, env: Environment, basic_result: Any) -> Any:
+    def _evaluate_contextually(self, expr: SExpression, env: Environment, basic_result: Any) -> Any:
         """LLMを使用した文脈考慮評価"""
         prompt = f"""
 タスク文脈: {self.task_context}
@@ -125,7 +128,7 @@ class ContextualEvaluator:
             return basic_result
     
     @traceable(name="basic_s_expression_evaluation")
-    def _evaluate_basic(self, expr: Any, env: Environment) -> Any:
+    def _evaluate_basic(self, expr: SExpression, env: Environment) -> Any:
         """基本的なS式評価"""
         # 記録
         self.execution_history.append({
