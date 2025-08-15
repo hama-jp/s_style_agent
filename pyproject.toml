@@ -5,9 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "asteval>=1.0.6",
     "langchain>=0.3.27",
     "langchain-openai>=0.3.30",
     "langgraph>=0.6.5",
     "langsmith>=0.4.14",
     "requests>=2.32.4",
+    "sympy>=1.14.0",
 ]

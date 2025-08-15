@@ -13,6 +13,12 @@ from langsmith import traceable
 # from langgraph.graph.state import CompiledGraph
 
 from .parser import parse_s_expression
+from ..tools.security_sympy import security_validator, safe_sympy_calculator
+
+
+class SecurityError(Exception):
+    """セキュリティ関連のエラー"""
+    pass
 
 
 class Environment:
@@ -48,7 +54,8 @@ class ContextualEvaluator:
     """文脈を考慮したS式評価器"""
     
     def __init__(self, llm_base_url: str = "http://192.168.79.1:1234/v1", 
-                 model_name: str = "unsloth/gpt-oss-120b"):
+                 model_name: str = "unsloth/gpt-oss-120b",
+                 is_admin: bool = False):
         self.llm = ChatOpenAI(
             base_url=llm_base_url,
             api_key="dummy",  # ローカルLLMなのでダミー
@@ -57,6 +64,7 @@ class ContextualEvaluator:
         )
         self.task_context = ""
         self.execution_history: List[Dict[str, Any]] = []
+        self.is_admin = is_admin
     
     def set_task_context(self, context: str) -> None:
         """タスクの文脈を設定"""
@@ -65,6 +73,11 @@ class ContextualEvaluator:
     @traceable(name="evaluate_with_context")
     def evaluate_with_context(self, expr: Any, env: Environment) -> Any:
         """文脈を考慮してS式を評価"""
+        # セキュリティ検証を最初に実行
+        is_valid, error_msg = security_validator.validate_s_expression(expr, self.is_admin)
+        if not is_valid:
+            raise SecurityError(f"セキュリティ検証失敗: {error_msg}")
+        
         # 基本評価
         result = self._evaluate_basic(expr, env)
         
@@ -172,8 +185,8 @@ class ContextualEvaluator:
         elif op == 'calc':
             expression = self._evaluate_basic(args[0], env)
             try:
-                # 安全な計算実行
-                result = eval(str(expression), {"__builtins__": {}}, {})
+                # SymPyベースの安全な計算実行
+                result = safe_sympy_calculator.calculate(str(expression))
                 return result
             except Exception as e:
                 return f"計算エラー: {e}"

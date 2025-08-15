@@ -10,6 +10,7 @@ from typing import Any, Dict
 from langsmith import traceable
 
 from .base import BaseTool, ToolSchema, ToolParameter, ToolResult
+from .security_sympy import safe_sympy_calculator
 
 
 class NotifyTool(BaseTool):
@@ -68,25 +69,21 @@ class CalcTool(BaseTool):
     @traceable(name="calc_tool_execute")
     async def execute(self, **kwargs) -> ToolResult:
         expression = kwargs.get("expression", "")
+        mode = kwargs.get("mode", "numeric")  # numeric, symbolic, simplify
         try:
-            # 安全な計算実行
-            allowed_names = {
-                "abs": abs, "round": round, "min": min, "max": max,
-                "sum": sum, "pow": pow, "divmod": divmod,
-                "__builtins__": {}
-            }
-            result = eval(expression, allowed_names, {})
+            # SymPyベースの安全な計算実行
+            result = safe_sympy_calculator.calculate(expression, mode=mode)
             return ToolResult(
                 success=True,
                 result=result,
-                metadata={"tool": "calc", "expression": expression}
+                metadata={"tool": "calc", "expression": expression, "mode": mode}
             )
         except Exception as e:
             return ToolResult(
                 success=False,
                 result=None,
                 error=f"計算エラー: {str(e)}",
-                metadata={"tool": "calc", "expression": expression}
+                metadata={"tool": "calc", "expression": expression, "mode": mode}
             )
 
 
@@ -162,6 +159,73 @@ class DbQueryTool(BaseTool):
         )
 
 
+class MathTool(BaseTool):
+    """高度な数学処理ツール（微分・積分・因数分解など）"""
+    
+    def __init__(self):
+        super().__init__("math", "高度な数学処理（微分・積分・因数分解など）")
+    
+    @property
+    def schema(self) -> ToolSchema:
+        return ToolSchema(
+            name=self.name,
+            description=self.description,
+            parameters=[
+                ToolParameter(
+                    name="expression",
+                    type="string",
+                    description="数学式",
+                    required=True
+                ),
+                ToolParameter(
+                    name="operation",
+                    type="string", 
+                    description="操作 (diff, integrate, solve, expand, factor)",
+                    required=True
+                ),
+                ToolParameter(
+                    name="var",
+                    type="string",
+                    description="変数名（デフォルト: x）",
+                    required=False
+                )
+            ]
+        )
+    
+    @traceable(name="math_tool_execute")
+    async def execute(self, **kwargs) -> ToolResult:
+        expression = kwargs.get("expression", "")
+        operation = kwargs.get("operation", "")
+        var = kwargs.get("var", "x")
+        
+        try:
+            result = safe_sympy_calculator.advanced_calculate(
+                expression, operation, var=var
+            )
+            return ToolResult(
+                success=True,
+                result=result,
+                metadata={
+                    "tool": "math", 
+                    "expression": expression, 
+                    "operation": operation,
+                    "var": var
+                }
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                result=None,
+                error=f"数学処理エラー: {str(e)}",
+                metadata={
+                    "tool": "math", 
+                    "expression": expression, 
+                    "operation": operation,
+                    "var": var
+                }
+            )
+
+
 def register_builtin_tools():
     """組み込みツールをレジストリに登録"""
     from .base import global_registry
@@ -170,7 +234,8 @@ def register_builtin_tools():
         NotifyTool(),
         CalcTool(),
         SearchTool(),
-        DbQueryTool()
+        DbQueryTool(),
+        MathTool()
     ]
     
     for tool in tools:
