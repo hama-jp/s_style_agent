@@ -5,8 +5,7 @@
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, Union, Coroutine
-from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from langsmith import traceable
@@ -237,10 +236,18 @@ class AsyncContextualEvaluator:
             body = args[1]
             new_env = AsyncEnvironment(parent=env)
             
+            # bindings_listがリストでない場合はエラー
+            if not isinstance(bindings_list, list):
+                raise TypeError(f"let式の束縛リストはリストである必要があります: {type(bindings_list)}")
+            
             # 変数束縛を並列で処理
             binding_tasks = []
             for binding in bindings_list:
+                if not isinstance(binding, list) or len(binding) != 2:
+                    raise TypeError(f"let式の束縛は[変数名, 値]の形式である必要があります: {binding}")
                 var = binding[0]
+                if not isinstance(var, str):
+                    raise TypeError(f"変数名は文字列である必要があります: {var}")
                 val_expr = binding[1]
                 binding_tasks.append(self._process_binding(var, val_expr, env, new_env, task_id))
             

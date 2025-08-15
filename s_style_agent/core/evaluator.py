@@ -172,8 +172,17 @@ class ContextualEvaluator:
             bindings_list = args[0]
             body = args[1]
             new_env = Environment(parent=env)
+            
+            # bindings_listがリストでない場合はエラー
+            if not isinstance(bindings_list, list):
+                raise TypeError(f"let式の束縛リストはリストである必要があります: {type(bindings_list)}")
+            
             for binding in bindings_list:
+                if not isinstance(binding, list) or len(binding) != 2:
+                    raise TypeError(f"let式の束縛は[変数名, 値]の形式である必要があります: {binding}")
                 var = binding[0]
+                if not isinstance(var, str):
+                    raise TypeError(f"変数名は文字列である必要があります: {var}")
                 val_expr = binding[1]
                 new_env.define(var, self._evaluate_basic(val_expr, env))
             return self._evaluate_basic(body, new_env)
