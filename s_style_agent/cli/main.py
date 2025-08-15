@@ -15,6 +15,7 @@ from langsmith import traceable
 
 from ..core.parser import parse_s_expression, SExpressionParseError
 from ..core.evaluator import ContextualEvaluator, Environment
+from ..core.async_evaluator import AsyncContextualEvaluator, AsyncEnvironment
 from ..tools.builtin_tools import register_builtin_tools
 from ..tools.base import global_registry
 
@@ -23,29 +24,40 @@ class SStyleAgentCLI:
     """S式エージェントCLI"""
     
     def __init__(self, llm_base_url: str = "http://192.168.79.1:1234/v1",
-                 model_name: str = "unsloth/gpt-oss-120b"):
+                 model_name: str = "unsloth/gpt-oss-120b",
+                 use_async: bool = True):
         self.llm = ChatOpenAI(
             base_url=llm_base_url,
             api_key="dummy",
             model=model_name,
             temperature=0.3
         )
-        self.evaluator = ContextualEvaluator(llm_base_url, model_name)
-        self.global_env = Environment()
+        self.use_async = use_async
+        
+        if use_async:
+            self.async_evaluator = AsyncContextualEvaluator(llm_base_url, model_name)
+            self.async_global_env = AsyncEnvironment()
+        else:
+            self.evaluator = ContextualEvaluator(llm_base_url, model_name)
+            self.global_env = Environment()
+        
         self.session_history: list = []
         
         # 組み込みツールを登録
         register_builtin_tools()
         
         print("S式エージェントシステムへようこそ！")
+        print(f"実行モード: {'非同期' if use_async else '同期'}")
         print("利用可能コマンド:")
-        print("  /help     - ヘルプを表示")
-        print("  /generate - LLMでS式を生成")
-        print("  /parse    - S式をパース")
-        print("  /execute  - S式を実行")
-        print("  /history  - セッション履歴を表示")
-        print("  /tools    - 利用可能ツール一覧")
-        print("  /exit     - 終了")
+        print("  /help      - ヘルプを表示")
+        print("  /generate  - LLMでS式を生成")
+        print("  /parse     - S式をパース")
+        print("  /execute   - S式を実行")
+        print("  /benchmark - 並列実行ベンチマーク")
+        print("  /toggle    - 同期/非同期モード切り替え")
+        print("  /history   - セッション履歴を表示")
+        print("  /tools     - 利用可能ツール一覧")
+        print("  /exit      - 終了")
         print()
     
     def print_help(self):
@@ -128,19 +140,26 @@ S式エージェントシステム ヘルプ
             return False, None, str(e)
     
     async def execute_s_expression(self, s_expr: str, context: str = "") -> Any:
-        """S式を実行"""
+        """S式を実行（同期・非同期両対応）"""
         try:
-            # まず既存の評価エンジンで実行
-            self.evaluator.set_task_context(context)
-            parsed_expr = parse_s_expression(s_expr)
-            result = self.evaluator.evaluate_with_context(parsed_expr, self.global_env)
+            if self.use_async:
+                # 非同期評価エンジンで実行
+                self.async_evaluator.set_task_context(context)
+                parsed_expr = parse_s_expression(s_expr)
+                result = await self.async_evaluator.evaluate_with_context(parsed_expr, self.async_global_env)
+            else:
+                # 同期評価エンジンで実行
+                self.evaluator.set_task_context(context)
+                parsed_expr = parse_s_expression(s_expr)
+                result = self.evaluator.evaluate_with_context(parsed_expr, self.global_env)
             
             # セッション履歴に記録
             self.session_history.append({
                 "input": s_expr,
                 "context": context,
                 "result": result,
-                "timestamp": asyncio.get_event_loop().time()
+                "timestamp": asyncio.get_event_loop().time(),
+                "async_mode": self.use_async
             })
             
             return result
@@ -150,7 +169,8 @@ S式エージェントシステム ヘルプ
                 "input": s_expr,
                 "context": context,
                 "error": error_msg,
-                "timestamp": asyncio.get_event_loop().time()
+                "timestamp": asyncio.get_event_loop().time(),
+                "async_mode": self.use_async
             })
             return error_msg
     
@@ -175,10 +195,63 @@ S式エージェントシステム ヘルプ
             print("利用可能なツールがありません。")
             return
         
-        print("\\n=== 利用可能ツール ===")
+        print("\n=== 利用可能ツール ===")
         for schema in schemas:
             params = ", ".join([p.name for p in schema.parameters])
             print(f"- {schema.name}({params}): {schema.description}")
+    
+    async def toggle_mode(self):
+        """同期/非同期モードを切り替え"""
+        self.use_async = not self.use_async
+        mode_str = "非同期" if self.use_async else "同期"
+        print(f"実行モードを {mode_str} に切り替えました。")
+        
+        # 新しいモードに応じて評価器を初期化
+        if self.use_async and not hasattr(self, 'async_evaluator'):
+            self.async_evaluator = AsyncContextualEvaluator()
+            self.async_global_env = AsyncEnvironment()
+        elif not self.use_async and not hasattr(self, 'evaluator'):
+            self.evaluator = ContextualEvaluator()
+            self.global_env = Environment()
+    
+    async def run_benchmark(self):
+        """並列実行ベンチマークを実行"""
+        print("\n=== 並列実行ベンチマーク ===")
+        
+        # ベンチマーク用のS式
+        test_expressions = [
+            # 順次実行
+            "(seq (calc \"2**10\") (calc \"3**8\") (calc \"5**6\"))",
+            # 並列実行
+            "(par (calc \"2**10\") (calc \"3**8\") (calc \"5**6\"))",
+            # 複雑な並列実行
+            "(par (seq (calc \"100+200\") (calc \"300*4\")) (seq (calc \"50/2\") (calc \"75*8\")) (calc \"999-123\"))"
+        ]
+        
+        for expr in test_expressions:
+            print(f"\nテスト: {expr}")
+            
+            # 同期実行のテスト
+            if hasattr(self, 'evaluator'):
+                start_time = asyncio.get_event_loop().time()
+                try:
+                    parsed_expr = parse_s_expression(expr)
+                    result = self.evaluator.evaluate_with_context(parsed_expr, self.global_env)
+                    sync_time = asyncio.get_event_loop().time() - start_time
+                    print(f"  同期実行: {sync_time:.3f}秒 → {result}")
+                except Exception as e:
+                    print(f"  同期実行: エラー → {e}")
+            
+            # 非同期実行のテスト
+            if hasattr(self, 'async_evaluator'):
+                start_time = asyncio.get_event_loop().time()
+                try:
+                    parsed_expr = parse_s_expression(expr)
+                    result = await self.async_evaluator.evaluate_with_context(parsed_expr, self.async_global_env)
+                    async_time = asyncio.get_event_loop().time() - start_time
+                    print(f"  非同期実行: {async_time:.3f}秒 → {result}")
+                except Exception as e:
+                    print(f"  非同期実行: エラー → {e}")
     
     async def run(self):
         """メインループ"""
@@ -202,6 +275,10 @@ S式エージェントシステム ヘルプ
                         self.show_history()
                     elif command == "tools":
                         self.show_tools()
+                    elif command == "toggle":
+                        await self.toggle_mode()
+                    elif command == "benchmark":
+                        await self.run_benchmark()
                     elif command == "generate":
                         task = input("タスクを入力してください: ").strip()
                         if task:
