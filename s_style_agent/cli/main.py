@@ -18,13 +18,14 @@ from ..core.evaluator import ContextualEvaluator, Environment
 from ..core.async_evaluator import AsyncContextualEvaluator, AsyncEnvironment
 from ..tools.builtin_tools import register_builtin_tools
 from ..tools.base import global_registry
+from ..mcp.manager import mcp_manager
 
 
 class SStyleAgentCLI:
     """S式エージェントCLI"""
     
     def __init__(self, llm_base_url: str = "http://192.168.79.1:1234/v1",
-                 model_name: str = "unsloth/gpt-oss-120b",
+                 model_name: str = "openai/gpt-oss-20b",
                  use_async: bool = True):
         self.llm = ChatOpenAI(
             base_url=llm_base_url,
@@ -46,6 +47,9 @@ class SStyleAgentCLI:
         # 組み込みツールを登録
         register_builtin_tools()
         
+        # MCP初期化フラグ
+        self.mcp_initialized = False
+        
         print("S式エージェントシステムへようこそ！")
         print(f"実行モード: {'非同期' if use_async else '同期'}")
         print("利用可能コマンド:")
@@ -57,6 +61,7 @@ class SStyleAgentCLI:
         print("  /toggle    - 同期/非同期モード切り替え")
         print("  /history   - セッション履歴を表示")
         print("  /tools     - 利用可能ツール一覧")
+        print("  /mcp       - MCPシステム管理")
         print("  /exit      - 終了")
         print()
     
@@ -180,9 +185,9 @@ S式エージェントシステム ヘルプ
             print("履歴がありません。")
             return
         
-        print("\\n=== セッション履歴 ===")
+        print("\n=== セッション履歴 ===")
         for i, entry in enumerate(self.session_history[-10:], 1):  # 最新10件
-            print(f"\\n{i}. S式: {entry['input']}")
+            print(f"\n{i}. S式: {entry['input']}")
             if 'result' in entry:
                 print(f"   結果: {entry['result']}")
             if 'error' in entry:
@@ -257,7 +262,7 @@ S式エージェントシステム ヘルプ
         """メインループ"""
         while True:
             try:
-                user_input = input("\\n> ").strip()
+                user_input = input("\n> ").strip()
                 
                 if not user_input:
                     continue
@@ -282,7 +287,7 @@ S式エージェントシステム ヘルプ
                     elif command == "generate":
                         task = input("タスクを入力してください: ").strip()
                         if task:
-                            print("\\nS式を生成中...")
+                            print("\nS式を生成中...")
                             s_expr = await self.generate_s_expression(task)
                             print(f"生成されたS式: {s_expr}")
                             
@@ -290,9 +295,9 @@ S式エージェントシステム ヘルプ
                             success, parsed, error = self.parse_s_expression_safe(s_expr)
                             if success:
                                 print(f"パース結果: {parsed}")
-                                exec_choice = input("\\n実行しますか？ (y/n): ").strip().lower()
+                                exec_choice = input("\n実行しますか？ (y/n): ").strip().lower()
                                 if exec_choice == 'y':
-                                    print("\\n実行中...")
+                                    print("\n実行中...")
                                     result = await self.execute_s_expression(s_expr, task)
                                     print(f"実行結果: {result}")
                             else:
@@ -309,9 +314,12 @@ S式エージェントシステム ヘルプ
                         s_expr = input("実行するS式を入力してください: ").strip()
                         if s_expr:
                             context = input("文脈（オプション）: ").strip()
-                            print("\\n実行中...")
+                            print("
+実行中...")
                             result = await self.execute_s_expression(s_expr, context)
                             print(f"実行結果: {result}")
+                    elif command == "mcp":
+                        await self.handle_mcp_command()
                     else:
                         print(f"不明なコマンド: {command}")
                         print("利用可能コマンド: /help, /generate, /parse, /execute, /history, /tools, /exit")
@@ -334,26 +342,177 @@ S式エージェントシステム ヘルプ
                         print(f"パース結果: {parsed}")
                         
                         # ユーザーに実行前確認
-                        exec_choice = input("\\n実行しますか？ (y/n/e=編集): ").strip().lower()
+                        exec_choice = input("\n実行しますか？ (y/n/e=編集): ").strip().lower()
                         
                         if exec_choice == 'y':
-                            print("\\n実行中...")
+                            print("\n実行中...")
                             result = await self.execute_s_expression(s_expr, user_input)
                             print(f"実行結果: {result}")
                         elif exec_choice == 'e':
-                            edited_expr = input(f"S式を編集してください:\\n{s_expr}\\n> ").strip()
+                            edited_expr = input(f"S式を編集してください:\n{s_expr}\n> ").strip()
                             if edited_expr:
-                                print("\\n編集されたS式を実行中...")
+                                print("\n編集されたS式を実行中...")
                                 result = await self.execute_s_expression(edited_expr, user_input)
                                 print(f"実行結果: {result}")
                     else:
                         print(f"パースエラー: {error}")
                         
             except KeyboardInterrupt:
-                print("\\n\\nS式エージェントを終了します。")
+                print("\n\nS式エージェントを終了します。")
                 break
             except Exception as e:
                 print(f"エラーが発生しました: {str(e)}")
+    
+    async def handle_mcp_command(self):
+        """MCPコマンドを処理"""
+        print("
+=== MCP (Model Context Protocol) 管理 ===")
+        print("1. init      - MCPシステムを初期化")
+        print("2. status    - MCPシステム状態を表示")
+        print("3. tools     - MCPツール一覧を表示")
+        print("4. health    - サーバーヘルスチェック")
+        print("5. restart   - サーバーを再起動")
+        print("6. shutdown  - MCPシステムを停止")
+        
+        choice = input("
+選択してください (1-6): ").strip()
+        
+        if choice == "1":
+            await self.init_mcp()
+        elif choice == "2":
+            self.show_mcp_status()
+        elif choice == "3":
+            self.show_mcp_tools()
+        elif choice == "4":
+            await self.mcp_health_check()
+        elif choice == "5":
+            await self.restart_mcp_server()
+        elif choice == "6":
+            await self.shutdown_mcp()
+        else:
+            print("無効な選択です")
+    
+    async def init_mcp(self):
+        """MCPシステムを初期化"""
+        if self.mcp_initialized:
+            print("MCPシステムは既に初期化されています")
+            return
+        
+        print("MCPシステムを初期化中...")
+        success = await mcp_manager.initialize()
+        
+        if success:
+            self.mcp_initialized = True
+            print("✅ MCPシステムの初期化に成功しました")
+            
+            # 利用可能なツールを表示
+            tools = mcp_manager.list_available_tools()
+            if tools:
+                print(f"✅ {len(tools)}個のMCPツールが利用可能です:")
+                for tool in tools:
+                    print(f"   - {tool}")
+        else:
+            print("❌ MCPシステムの初期化に失敗しました")
+    
+    def show_mcp_status(self):
+        """MCPシステムの状態を表示"""
+        status = mcp_manager.get_system_status()
+        
+        print("
+=== MCPシステム状態 ===")
+        print(f"初期化済み: {status['initialized']}")
+        print(f"サーバー起動済み: {status['servers_started']}")
+        print(f"ツール登録済み: {status['tools_registered']}")
+        print(f"アクティブサーバー: {status['active_servers']}")
+        
+        stats = status['tool_statistics']
+        print(f"登録ツール数: {stats['total_tools']}")
+        
+        if stats['servers']:
+            print("サーバー別ツール数:")
+            for server, count in stats['servers'].items():
+                print(f"  - {server}: {count}個")
+    
+    def show_mcp_tools(self):
+        """MCPツール一覧を表示"""
+        tools = mcp_manager.list_available_tools()
+        
+        if not tools:
+            print("MCPツールが登録されていません")
+            return
+        
+        print(f"
+=== MCPツール一覧 ({len(tools)}個) ===")
+        for tool_name in tools:
+            info = mcp_manager.get_tool_info(tool_name)
+            if info:
+                print(f"- {tool_name} ({info['server_id']})")
+                print(f"  説明: {info['description']}")
+                if info['input_schema'].get('properties'):
+                    params = list(info['input_schema']['properties'].keys())
+                    print(f"  パラメータ: {', '.join(params)}")
+                print()
+    
+    async def mcp_health_check(self):
+        """MCPサーバーのヘルスチェック"""
+        if not self.mcp_initialized:
+            print("MCPシステムが初期化されていません")
+            return
+        
+        print("ヘルスチェック実行中...")
+        health_status = await mcp_manager.health_check()
+        
+        print("
+=== サーバーヘルスチェック結果 ===")
+        for server_id, is_healthy in health_status.items():
+            status_icon = "✅" if is_healthy else "❌"
+            status_text = "正常" if is_healthy else "異常"
+            print(f"{status_icon} {server_id}: {status_text}")
+    
+    async def restart_mcp_server(self):
+        """MCPサーバーを再起動"""
+        if not self.mcp_initialized:
+            print("MCPシステムが初期化されていません")
+            return
+        
+        status = mcp_manager.get_system_status()
+        servers = status['active_servers']
+        
+        if not servers:
+            print("アクティブなサーバーがありません")
+            return
+        
+        print("アクティブサーバー:")
+        for i, server in enumerate(servers, 1):
+            print(f"{i}. {server}")
+        
+        try:
+            choice = int(input("再起動するサーバー番号を選択: ")) - 1
+            if 0 <= choice < len(servers):
+                server_id = servers[choice]
+                print(f"サーバー '{server_id}' を再起動中...")
+                success = await mcp_manager.restart_server(server_id)
+                if success:
+                    print("✅ サーバーの再起動に成功しました")
+                else:
+                    print("❌ サーバーの再起動に失敗しました")
+            else:
+                print("無効な選択です")
+        except ValueError:
+            print("無効な入力です")
+    
+    async def shutdown_mcp(self):
+        """MCPシステムを停止"""
+        if not self.mcp_initialized:
+            print("MCPシステムは起動していません")
+            return
+        
+        confirm = input("MCPシステムを停止しますか？ (y/n): ").strip().lower()
+        if confirm == 'y':
+            print("MCPシステムを停止中...")
+            await mcp_manager.shutdown()
+            self.mcp_initialized = False
+            print("✅ MCPシステムを停止しました")
 
 
 async def main():

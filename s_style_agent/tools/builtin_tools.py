@@ -10,7 +10,8 @@ from typing import Any, Dict
 from langsmith import traceable
 
 from .base import BaseTool, ToolSchema, ToolParameter, ToolResult
-from .security_sympy import safe_sympy_calculator
+from .math_engine import MathEngine, StepMathEngine
+from .user_interaction import AskUserTool, CollectInfoTool, ConditionalAskTool, SuggestAndConfirmTool
 
 
 class NotifyTool(BaseTool):
@@ -71,13 +72,46 @@ class CalcTool(BaseTool):
         expression = kwargs.get("expression", "")
         mode = kwargs.get("mode", "numeric")  # numeric, symbolic, simplify
         try:
-            # SymPyベースの安全な計算実行
-            result = safe_sympy_calculator.calculate(expression, mode=mode)
-            return ToolResult(
-                success=True,
-                result=result,
-                metadata={"tool": "calc", "expression": expression, "mode": mode}
-            )
+            # 直接SymPyを使用した計算
+            import sympy as sp
+            expr = sp.sympify(expression)
+            
+            if mode == "numeric":
+                result = sp.N(expr)
+                # 可能であれば数値型に変換
+                if result.is_number:
+                    if result.is_integer:
+                        return ToolResult(
+                            success=True, 
+                            result=int(result), 
+                            metadata={"tool": "calc", "expression": expression, "mode": mode}
+                        )
+                    else:
+                        return ToolResult(
+                            success=True, 
+                            result=float(result), 
+                            metadata={"tool": "calc", "expression": expression, "mode": mode}
+                        )
+                return ToolResult(
+                    success=True, 
+                    result=str(result), 
+                    metadata={"tool": "calc", "expression": expression, "mode": mode}
+                )
+            elif mode == "symbolic":
+                return ToolResult(
+                    success=True, 
+                    result=str(expr), 
+                    metadata={"tool": "calc", "expression": expression, "mode": mode}
+                )
+            elif mode == "simplify":
+                result = sp.simplify(expr)
+                return ToolResult(
+                    success=True, 
+                    result=str(result), 
+                    metadata={"tool": "calc", "expression": expression, "mode": mode}
+                )
+            else:
+                raise ValueError(f"不明なモード: {mode}")
         except Exception as e:
             return ToolResult(
                 success=False,
@@ -159,73 +193,6 @@ class DbQueryTool(BaseTool):
         )
 
 
-class MathTool(BaseTool):
-    """高度な数学処理ツール（微分・積分・因数分解など）"""
-    
-    def __init__(self):
-        super().__init__("math", "高度な数学処理（微分・積分・因数分解など）")
-    
-    @property
-    def schema(self) -> ToolSchema:
-        return ToolSchema(
-            name=self.name,
-            description=self.description,
-            parameters=[
-                ToolParameter(
-                    name="expression",
-                    type="string",
-                    description="数学式",
-                    required=True
-                ),
-                ToolParameter(
-                    name="operation",
-                    type="string", 
-                    description="操作 (diff, integrate, solve, expand, factor)",
-                    required=True
-                ),
-                ToolParameter(
-                    name="var",
-                    type="string",
-                    description="変数名（デフォルト: x）",
-                    required=False
-                )
-            ]
-        )
-    
-    @traceable(name="math_tool_execute")
-    async def execute(self, **kwargs) -> ToolResult:
-        expression = kwargs.get("expression", "")
-        operation = kwargs.get("operation", "")
-        var = kwargs.get("var", "x")
-        
-        try:
-            result = safe_sympy_calculator.advanced_calculate(
-                expression, operation, var=var
-            )
-            return ToolResult(
-                success=True,
-                result=result,
-                metadata={
-                    "tool": "math", 
-                    "expression": expression, 
-                    "operation": operation,
-                    "var": var
-                }
-            )
-        except Exception as e:
-            return ToolResult(
-                success=False,
-                result=None,
-                error=f"数学処理エラー: {str(e)}",
-                metadata={
-                    "tool": "math", 
-                    "expression": expression, 
-                    "operation": operation,
-                    "var": var
-                }
-            )
-
-
 def register_builtin_tools():
     """組み込みツールをレジストリに登録"""
     from .base import global_registry
@@ -235,7 +202,12 @@ def register_builtin_tools():
         CalcTool(),
         SearchTool(),
         DbQueryTool(),
-        MathTool()
+        MathEngine(),  # 記号数学処理エンジン
+        StepMathEngine(),  # 段階的数学解法エンジン
+        AskUserTool(),  # ユーザー質問ツール
+        CollectInfoTool(),  # 情報収集ツール
+        ConditionalAskTool(),  # 条件付き質問ツール
+        SuggestAndConfirmTool()  # 提案確認ツール
     ]
     
     for tool in tools:

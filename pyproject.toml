@@ -7,15 +7,23 @@ requires-python = ">=3.12"
 dependencies = [
     "asteval>=1.0.6",
     "fastapi>=0.116.1",
+    "jsonschema>=4.25.0",
     "langchain>=0.3.27",
+    "langchain-core>=0.3.74",
     "langchain-openai>=0.3.30",
     "langgraph>=0.6.5",
     "langsmith>=0.4.14",
+    "mcp>=1.13.0",
     "requests>=2.32.4",
     "sympy>=1.14.0",
     "uvicorn>=0.35.0",
     "websockets>=15.0.1",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["s_style_agent*"]
+exclude = ["concept*"]
 
 [dependency-groups]
 dev = [

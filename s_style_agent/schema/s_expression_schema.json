@@ -1,0 +1,302 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://s-style-agent.com/schemas/s_expression.json",
+  "title": "S式エージェントシステム AST Schema",
+  "description": "S式評価エンジン用の正式AST仕様",
+  "version": "1.0.0",
+  
+  "definitions": {
+    "expression": {
+      "oneOf": [
+        {"$ref": "#/definitions/atom"},
+        {"$ref": "#/definitions/list_expression"}
+      ]
+    },
+    
+    "atom": {
+      "oneOf": [
+        {"type": "string", "title": "identifier_or_literal"},
+        {"type": "number", "title": "numeric_literal"},
+        {"type": "boolean", "title": "boolean_literal"},
+        {"type": "null", "title": "null_literal"}
+      ]
+    },
+    
+    "list_expression": {
+      "type": "array",
+      "minItems": 1,
+      "items": [
+        {"$ref": "#/definitions/operator"}
+      ],
+      "additionalItems": {"$ref": "#/definitions/expression"}
+    },
+    
+    "operator": {
+      "type": "string",
+      "enum": [
+        "plan", "seq", "par", "if", "handle", "set", "while",
+        "+", "-", "*", "/", "<", ">", "<=", ">=", "=", 
+        "let", "notify", "search", "calc", "db-query", 
+        "math", "step_math", "ask_user"
+      ]
+    },
+    
+    "control_flow": {
+      "oneOf": [
+        {"$ref": "#/definitions/seq_expr"},
+        {"$ref": "#/definitions/par_expr"},
+        {"$ref": "#/definitions/if_expr"},
+        {"$ref": "#/definitions/handle_expr"},
+        {"$ref": "#/definitions/while_expr"},
+        {"$ref": "#/definitions/let_expr"}
+      ]
+    },
+    
+    "seq_expr": {
+      "type": "array",
+      "items": [
+        {"const": "seq"}
+      ],
+      "additionalItems": {"$ref": "#/definitions/expression"},
+      "minItems": 2,
+      "description": "Sequential execution: (seq expr1 expr2 ...)"
+    },
+    
+    "par_expr": {
+      "type": "array",
+      "items": [
+        {"const": "par"}
+      ],
+      "additionalItems": {"$ref": "#/definitions/expression"},
+      "minItems": 2,
+      "description": "Parallel execution: (par expr1 expr2 ...)"
+    },
+    
+    "if_expr": {
+      "type": "array",
+      "items": [
+        {"const": "if"},
+        {"$ref": "#/definitions/expression", "title": "condition"},
+        {"$ref": "#/definitions/expression", "title": "then_branch"},
+        {"$ref": "#/definitions/expression", "title": "else_branch"}
+      ],
+      "minItems": 3,
+      "maxItems": 4,
+      "description": "Conditional: (if condition then [else])"
+    },
+    
+    "handle_expr": {
+      "type": "array",
+      "items": [
+        {"const": "handle"},
+        {"type": "string", "title": "error_variable"},
+        {"$ref": "#/definitions/expression", "title": "try_form"},
+        {"$ref": "#/definitions/expression", "title": "catch_form"}
+      ],
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Error handling: (handle error_var try_form catch_form)"
+    },
+    
+    "while_expr": {
+      "type": "array",
+      "items": [
+        {"const": "while"},
+        {"$ref": "#/definitions/expression", "title": "condition"},
+        {"$ref": "#/definitions/expression", "title": "body"},
+        {"type": "integer", "minimum": 1, "maximum": 10000, "title": "max_iterations"}
+      ],
+      "minItems": 3,
+      "maxItems": 4,
+      "description": "Loop: (while condition body [max_iterations])"
+    },
+    
+    "let_expr": {
+      "type": "array",
+      "items": [
+        {"const": "let"},
+        {"$ref": "#/definitions/bindings"},
+        {"$ref": "#/definitions/expression", "title": "body"}
+      ],
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Variable binding: (let [[var1 val1] [var2 val2]] body)"
+    },
+    
+    "set_expr": {
+      "type": "array",
+      "items": [
+        {"const": "set"},
+        {"type": "string", "title": "variable_name"},
+        {"$ref": "#/definitions/expression", "title": "value"}
+      ],
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Variable assignment: (set var_name value)"
+    },
+    
+    "bindings": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": [
+          {"type": "string", "title": "variable_name"},
+          {"$ref": "#/definitions/expression", "title": "value"}
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "description": "Variable bindings: [[var1 val1] [var2 val2] ...]"
+    },
+    
+    "arithmetic": {
+      "oneOf": [
+        {"$ref": "#/definitions/add_expr"},
+        {"$ref": "#/definitions/comparison_expr"}
+      ]
+    },
+    
+    "add_expr": {
+      "type": "array",
+      "items": [
+        {"const": "+"}
+      ],
+      "additionalItems": {"$ref": "#/definitions/expression"},
+      "minItems": 3,
+      "description": "Addition: (+ a b ...)"
+    },
+    
+    "comparison_expr": {
+      "type": "array",
+      "items": [
+        {"enum": ["<", ">", "<=", ">=", "="]},
+        {"$ref": "#/definitions/expression"},
+        {"$ref": "#/definitions/expression"}
+      ],
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Comparison: (< a b)"
+    },
+    
+    "tools": {
+      "oneOf": [
+        {"$ref": "#/definitions/notify_expr"},
+        {"$ref": "#/definitions/search_expr"},
+        {"$ref": "#/definitions/calc_expr"},
+        {"$ref": "#/definitions/math_expr"},
+        {"$ref": "#/definitions/step_math_expr"},
+        {"$ref": "#/definitions/ask_user_expr"}
+      ]
+    },
+    
+    "notify_expr": {
+      "type": "array",
+      "items": [
+        {"const": "notify"},
+        {"$ref": "#/definitions/expression", "title": "message"}
+      ],
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Notification: (notify message)"
+    },
+    
+    "search_expr": {
+      "type": "array",
+      "items": [
+        {"const": "search"},
+        {"$ref": "#/definitions/expression", "title": "query"}
+      ],
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Search: (search query)"
+    },
+    
+    "calc_expr": {
+      "type": "array",
+      "items": [
+        {"const": "calc"},
+        {"$ref": "#/definitions/expression", "title": "expression"}
+      ],
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Mathematical calculation: (calc expression)"
+    },
+    
+    "math_expr": {
+      "type": "array",
+      "items": [
+        {"const": "math"},
+        {"$ref": "#/definitions/expression", "title": "expression"},
+        {"enum": ["diff", "integrate", "factor", "expand", "simplify", "solve"], "title": "operation"},
+        {"type": "string", "title": "variable"}
+      ],
+      "minItems": 3,
+      "maxItems": 4,
+      "description": "Symbolic math: (math expr operation [var])"
+    },
+    
+    "step_math_expr": {
+      "type": "array",
+      "items": [
+        {"const": "step_math"},
+        {"$ref": "#/definitions/expression", "title": "expression"},
+        {"enum": ["diff", "integrate", "factor", "expand", "simplify", "solve"], "title": "operation"},
+        {"type": "string", "title": "variable"}
+      ],
+      "minItems": 3,
+      "maxItems": 4,
+      "description": "Step-by-step math: (step_math expr operation [var])"
+    },
+    
+    "ask_user_expr": {
+      "type": "array",
+      "items": [
+        {"const": "ask_user"},
+        {"$ref": "#/definitions/expression", "title": "question"},
+        {"type": "string", "title": "variable_name"},
+        {"enum": ["required", "optional"], "title": "question_type"}
+      ],
+      "minItems": 2,
+      "maxItems": 4,
+      "description": "User interaction: (ask_user question [var_name] [type])"
+    }
+  },
+  
+  "type": "object",
+  "properties": {
+    "ast": {"$ref": "#/definitions/expression"},
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "version": {"type": "string"},
+        "source": {"type": "string"},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "llm_model": {"type": "string"},
+        "validation_level": {"enum": ["strict", "permissive", "experimental"]}
+      },
+      "required": ["version"]
+    }
+  },
+  "required": ["ast"],
+  
+  "examples": [
+    {
+      "ast": ["notify", "Hello World"],
+      "metadata": {"version": "1.0.0"}
+    },
+    {
+      "ast": ["seq", 
+        ["let", [["x", 5]], ["notify", "x"]],
+        ["calc", "x + 10"]
+      ],
+      "metadata": {"version": "1.0.0", "validation_level": "strict"}
+    },
+    {
+      "ast": ["handle", "err",
+        ["calc", "1/0"],
+        ["notify", "Division by zero error"]
+      ],
+      "metadata": {"version": "1.0.0"}
+    }
+  ]
+}

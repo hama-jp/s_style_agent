@@ -12,7 +12,7 @@ from pydantic import BaseModel
 class LLMConfig(BaseModel):
     """LLM設定"""
     base_url: str = "http://192.168.79.1:1234/v1"
-    model_name: str = "unsloth/gpt-oss-120b"
+    model_name: str = "openai/gpt-oss-20b"
     api_key: str = "dummy"
     temperature: float = 0.3
     max_tokens: Optional[int] = None

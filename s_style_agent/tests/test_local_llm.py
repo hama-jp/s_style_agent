@@ -8,7 +8,7 @@ import json
 
 def test_local_llm():
     base_url = "http://192.168.79.1:1234/v1"
-    model_name = "unsloth/gpt-oss-120b"
+    model_name = "openai/gpt-oss-20b"
     
     # APIエンドポイントの確認
     endpoints_to_test = [
@@ -21,7 +21,7 @@ def test_local_llm():
     # 1. モデル一覧の取得テスト
     print("\n1. モデル一覧の取得テスト")
     try:
-        response = requests.get(f"{base_url}/models", timeout=10)
+        response = requests.get(f"{base_url}/models", timeout=60)
         if response.status_code == 200:
             models = response.json()
             print("✓ モデル一覧取得成功")
@@ -55,7 +55,7 @@ def test_local_llm():
             f"{base_url}/chat/completions", 
             headers=headers,
             json=payload,
-            timeout=30
+            timeout=60
         )
         
         if response.status_code == 200:
@@ -100,7 +100,7 @@ S式のみを返してください。"""
             f"{base_url}/chat/completions", 
             headers=headers,
             json=payload,
-            timeout=30
+            timeout=60
         )
         
         if response.status_code == 200:

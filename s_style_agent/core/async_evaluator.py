@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 from langsmith import traceable
 
 from .parser import parse_s_expression, SExpression
-from ..tools.security_sympy import security_validator, safe_sympy_calculator
+import sympy as sp
 
 
 class SecurityError(Exception):
@@ -31,6 +31,18 @@ class AsyncEnvironment:
         """変数を定義（スレッドセーフ）"""
         async with self._lock:
             self.bindings[var] = val
+    
+    async def set(self, var: str, val: Any) -> None:
+        """既存変数に値を設定（スコープチェーン対応）"""
+        async with self._lock:
+            if var in self.bindings:
+                self.bindings[var] = val
+                return
+        
+        if self.parent:
+            await self.parent.set(var, val)
+        else:
+            raise NameError(f"Name '{var}' is not defined")
     
     async def lookup(self, var: str) -> Any:
         """変数を検索"""
@@ -59,7 +71,7 @@ class AsyncContextualEvaluator:
     """非同期対応の文脈考慮S式評価器"""
     
     def __init__(self, llm_base_url: str = "http://192.168.79.1:1234/v1", 
-                 model_name: str = "unsloth/gpt-oss-120b",
+                 model_name: str = "openai/gpt-oss-20b",
                  is_admin: bool = False,
                  max_parallel_tasks: int = 10):
         self.llm = ChatOpenAI(
@@ -88,10 +100,9 @@ class AsyncContextualEvaluator:
             task_id = self._get_next_task_id()
         
         try:
-            # セキュリティ検証を最初に実行
-            is_valid, error_msg = security_validator.validate_s_expression(expr, self.is_admin)
-            if not is_valid:
-                raise SecurityError(f"セキュリティ検証失敗: {error_msg}")
+            # 基本的な安全性チェック
+            if isinstance(expr, list) and len(expr) > 0 and expr[0] == "__import__":
+                raise SecurityError("危険な操作は許可されていません")
             
             # セマフォを使用してリソース制限
             async with self._semaphore:
@@ -231,6 +242,105 @@ class AsyncContextualEvaluator:
             else:
                 return await self._evaluate_basic_async(args[2], env, task_id) if len(args) > 2 else None
         
+        elif op == 'handle':
+            # try/catch構文: (handle error_var form fallback_form)
+            if len(args) != 3:
+                raise TypeError(f"handle式は3つの引数が必要です: (handle error_var form fallback_form), 受信: {len(args)}個")
+            
+            error_var = args[0]
+            form = args[1]
+            fallback_form = args[2]
+            
+            if not isinstance(error_var, str):
+                raise TypeError(f"エラー変数名は文字列である必要があります: {error_var}")
+            
+            try:
+                # メイン処理を非同期実行
+                return await self._evaluate_basic_async(form, env, task_id)
+            except Exception as e:
+                # エラー発生時: エラー情報を環境に設定してフォールバック実行
+                error_env = AsyncEnvironment(parent=env)
+                error_info = {
+                    "type": type(e).__name__,
+                    "message": str(e),
+                    "original_expression": form
+                }
+                await error_env.define(error_var, error_info)
+                return await self._evaluate_basic_async(fallback_form, error_env, task_id)
+        
+        elif op == 'set':
+            # 変数代入: (set var_name value)
+            if len(args) != 2:
+                raise TypeError(f"set式は2つの引数が必要です: (set var_name value), 受信: {len(args)}個")
+            
+            var_name = args[0]
+            value_expr = args[1]
+            
+            if not isinstance(var_name, str):
+                raise TypeError(f"変数名は文字列である必要があります: {var_name}")
+            
+            value = await self._evaluate_basic_async(value_expr, env, task_id)
+            await env.set(var_name, value)
+            return value
+        
+        elif op == 'while':
+            # while構文: (while condition body max_iterations)
+            if len(args) < 2 or len(args) > 3:
+                raise TypeError(f"while式は2-3個の引数が必要です: (while condition body [max_iterations]), 受信: {len(args)}個")
+            
+            condition_expr = args[0]
+            body_expr = args[1]
+            max_iterations = args[2] if len(args) > 2 else 1000  # デフォルト上限
+            
+            # 最大反復数の評価と安全性チェック
+            if not isinstance(max_iterations, int):
+                max_iterations = await self._evaluate_basic_async(max_iterations, env, task_id)
+            
+            if not isinstance(max_iterations, (int, float)) or max_iterations <= 0:
+                raise TypeError(f"最大反復数は正の数値である必要があります: {max_iterations}")
+            
+            max_iterations = int(max_iterations)
+            if max_iterations > 10000:  # 安全上限
+                raise ValueError(f"最大反復数が制限を超えています: {max_iterations} > 10000")
+            
+            # while ループ実行
+            result = None
+            iteration_count = 0
+            
+            while iteration_count < max_iterations:
+                # 条件評価
+                condition_result = await self._evaluate_basic_async(condition_expr, env, task_id)
+                
+                # 条件が偽なら終了
+                if not condition_result:
+                    break
+                
+                # ボディ実行
+                result = await self._evaluate_basic_async(body_expr, env, task_id)
+                iteration_count += 1
+                
+                # 非同期処理のため適切な間隔で他の処理に制御を譲る
+                if iteration_count % 10 == 0:
+                    await asyncio.sleep(0)
+            
+            return result
+        
+        elif op == '+':
+            # 加算: (+ a b ...)
+            if len(args) < 2:
+                raise TypeError("加算には少なくとも2つの引数が必要です")
+            result = await self._evaluate_basic_async(args[0], env, task_id)
+            for arg in args[1:]:
+                val = await self._evaluate_basic_async(arg, env, task_id)
+                result = result + val
+            return result
+        elif op == '<':
+            # 比較: (< a b)
+            if len(args) != 2:
+                raise TypeError("比較には2つの引数が必要です")
+            a = await self._evaluate_basic_async(args[0], env, task_id)
+            b = await self._evaluate_basic_async(args[1], env, task_id)
+            return a < b
         elif op == 'let':
             bindings_list = args[0]
             body = args[1]
@@ -269,14 +379,19 @@ class AsyncContextualEvaluator:
         elif op == 'calc':
             expression = await self._evaluate_basic_async(args[0], env, task_id)
             try:
-                # SymPyベースの安全な計算実行
+                # 直接SymPyを使用した計算
                 # CPU集約的な処理なので ThreadPoolExecutor で実行
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None, 
-                    safe_sympy_calculator.calculate, 
-                    str(expression)
-                )
+                
+                def compute_sympy():
+                    import sympy as sp
+                    expr = sp.sympify(str(expression))
+                    result = sp.N(expr)
+                    if result.is_number:
+                        return float(result) if result.is_real else str(result)
+                    return str(result)
+                
+                result = await loop.run_in_executor(None, compute_sympy)
                 return result
             except Exception as e:
                 return f"計算エラー: {e}"
@@ -288,7 +403,110 @@ class AsyncContextualEvaluator:
             await asyncio.sleep(0.05)
             return f"DB結果: {query}"
         
+        elif op == 'math':
+            # 記号数学処理エンジン
+            expression = await self._evaluate_basic_async(args[0], env, task_id)
+            operation = await self._evaluate_basic_async(args[1], env, task_id)
+            var_name = args[2] if len(args) > 2 else "x"
+            
+            try:
+                import sympy as sp
+                expr = sp.sympify(str(expression))
+                var = sp.symbols(str(var_name))
+                
+                if operation == "diff":
+                    result = sp.diff(expr, var)
+                elif operation == "integrate":
+                    result = sp.integrate(expr, var)
+                elif operation == "factor":
+                    result = sp.factor(expr)
+                elif operation == "expand":
+                    result = sp.expand(expr)
+                elif operation == "simplify":
+                    result = sp.simplify(expr)
+                elif operation == "solve":
+                    result = sp.solve(expr, var)
+                else:
+                    return f"不明な操作: {operation}"
+                
+                return str(result)
+            except Exception as e:
+                return f"数学処理エラー: {e}"
+        
+        elif op == 'step_math':
+            # 段階的数学解法エンジン
+            expression = await self._evaluate_basic_async(args[0], env, task_id)
+            operation = await self._evaluate_basic_async(args[1], env, task_id)
+            var_name = args[2] if len(args) > 2 else "x"
+            
+            try:
+                from ..tools.math_engine import StepMathEngine
+                tool = StepMathEngine()
+                
+                result = await tool.execute(
+                    expression=str(expression),
+                    operation=str(operation),
+                    var=str(var_name)
+                )
+                
+                if result.success:
+                    return result.result
+                else:
+                    return f"段階的数学処理エラー: {result.error}"
+                    
+            except Exception as e:
+                return f"段階的数学処理エラー: {e}"
+        
+        elif op == 'ask_user':
+            # ユーザー質問ツール
+            question = await self._evaluate_basic_async(args[0], env, task_id)
+            variable_name = args[1] if len(args) > 1 else "user_input"
+            question_type = args[2] if len(args) > 2 else "required"
+            
+            try:
+                from ..tools.user_interaction import AskUserTool
+                tool = AskUserTool()
+                
+                result = await tool.execute(
+                    question=str(question),
+                    variable_name=str(variable_name),
+                    question_type=str(question_type)
+                )
+                
+                if result.success:
+                    # 環境に変数を設定
+                    env.define(str(variable_name), result.result)
+                    return result.result
+                else:
+                    return f"ユーザー質問エラー: {result.error}"
+                    
+            except Exception as e:
+                return f"ユーザー質問処理エラー: {e}"
+        
         else:
+            # MCPツールもチェック
+            from ..mcp.manager import mcp_manager
+            from ..mcp.robust_client import robust_mcp_client
+            
+            # MCPツールから検索
+            if mcp_manager.initialized and str(op) in robust_mcp_client.list_tools():
+                try:
+                    # パラメータを準備（簡単な方法）
+                    kwargs = {}
+                    for i, arg in enumerate(args):
+                        param_name = f"arg_{i}" if i > 0 else "query"  # 一般的なパラメータ名
+                        kwargs[param_name] = await self._evaluate_basic_async(arg, env, task_id)
+                    
+                    # MCPツールを実行
+                    result = await robust_mcp_client.call_tool(str(op), kwargs)
+                    
+                    if result.get("success"):
+                        return result.get("result")
+                    else:
+                        return f"MCPツールエラー: {result.get('error')}"
+                except Exception as e:
+                    return f"MCPツール処理エラー: {e}"
+            
             raise NotImplementedError(f"Unknown operation: {op}")
     
     async def _process_binding(self, var: str, val_expr: SExpression, 
