@@ -11,6 +11,7 @@ from langchain_openai import ChatOpenAI
 from langsmith import traceable
 
 from .parser import parse_s_expression, SExpression
+from ..config.settings import settings
 import sympy as sp
 
 
@@ -70,15 +71,19 @@ class AsyncEnvironment:
 class AsyncContextualEvaluator:
     """非同期対応の文脈考慮S式評価器"""
     
-    def __init__(self, llm_base_url: str = "http://192.168.79.1:1234/v1", 
-                 model_name: str = "openai/gpt-oss-20b",
+    def __init__(self, llm_base_url: str = None, 
+                 model_name: str = None,
                  is_admin: bool = False,
                  max_parallel_tasks: int = 10):
+        # 設定値を使用（引数が指定されていない場合）
+        llm_base_url = llm_base_url or settings.llm.base_url
+        model_name = model_name or settings.llm.model_name
+        
         self.llm = ChatOpenAI(
             base_url=llm_base_url,
-            api_key="dummy",  # ローカルLLMなのでダミー
+            api_key=settings.llm.api_key,
             model=model_name,
-            temperature=0.3
+            temperature=settings.llm.temperature
         )
         self.task_context = ""
         self.execution_history: List[Dict[str, Any]] = []

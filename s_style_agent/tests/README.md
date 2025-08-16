@@ -59,7 +59,7 @@ uv run python -m pytest s_style_agent/tests/ -v
 
 ## 必要な前提条件
 
-1. **LLMサーバー**: http://192.168.79.1:1234/v1 で動作
+1. **LLMサーバー**: http://localhost:1234/v1 で動作
 2. **Python環境**: uv + Python 3.12
 3. **依存関係**: sympy, langchain, langgraph等
 

@@ -7,7 +7,7 @@ import requests
 import json
 
 def test_local_llm():
-    base_url = "http://192.168.79.1:1234/v1"
+    base_url = "http://localhost:1234/v1"  # GitHub公開用にlocalhost表記に変更
     model_name = "openai/gpt-oss-20b"
     
     # APIエンドポイントの確認

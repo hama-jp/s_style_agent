@@ -8,16 +8,21 @@ import json
 from typing import Any, Dict, List, Optional
 from langchain_openai import ChatOpenAI
 from langsmith import traceable
+from ..config.settings import settings
 
 
 class SearchResultExtractor:
     """検索結果抽出・要約クラス"""
     
-    def __init__(self, llm_base_url: str = "http://192.168.79.1:1234/v1",
-                 model_name: str = "openai/gpt-oss-20b"):
+    def __init__(self, llm_base_url: str = None,
+                 model_name: str = None):
+        # 設定値を使用（引数が指定されていない場合）
+        llm_base_url = llm_base_url or settings.llm.base_url
+        model_name = model_name or settings.llm.model_name
+        
         self.llm = ChatOpenAI(
             base_url=llm_base_url,
-            api_key="dummy",
+            api_key=settings.llm.api_key,
             model=model_name,
             temperature=0.1  # 事実抽出のため低めに設定
         )

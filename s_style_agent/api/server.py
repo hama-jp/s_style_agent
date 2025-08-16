@@ -23,6 +23,7 @@ from ..core.evaluator import ContextualEvaluator, Environment
 from ..core.async_evaluator import AsyncContextualEvaluator, AsyncEnvironment
 from ..tools.base import global_registry
 from ..cli.main import SStyleAgentCLI
+from ..config.settings import settings
 
 
 class ConnectionManager:
@@ -86,7 +87,7 @@ app.add_middleware(
 # WebSocket接続管理
 manager = ConnectionManager()
 
-# グローバル評価器
+# グローバル評価器（設定は自動取得）
 sync_evaluator = ContextualEvaluator()
 async_evaluator = AsyncContextualEvaluator()
 sync_env = Environment()
@@ -179,8 +180,8 @@ async def generate_s_expression_endpoint(request: GenerateRequest):
     try:
         # CLIのS式生成機能を利用
         cli = SStyleAgentCLI(
-            llm_base_url=request.llm_base_url or "http://192.168.79.1:1234/v1",
-            model_name=request.model_name or "unsloth/gpt-oss-120b"
+            llm_base_url=request.llm_base_url or settings.llm.base_url,
+            model_name=request.model_name or settings.llm.model_name
         )
         
         expression = await cli.generate_s_expression(request.task)

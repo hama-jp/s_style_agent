@@ -33,20 +33,60 @@ cd s-style-agent
 uv sync
 ```
 
-### 環境設定
+### LLM設定
 
-環境変数で設定をカスタマイズできます：
+このシステムは複数のLLMプロバイダーに対応しています。環境変数で設定できます：
+
+#### ローカルLLM（デフォルト）
 
 ```bash
-# LLM設定
-export LLM_BASE_URL="http://192.168.79.1:1234/v1"
-export LLM_MODEL_NAME="unsloth/gpt-oss-120b"
-export LLM_TEMPERATURE="0.3"
+export LLM_BASE_URL="http://localhost:1234/v1"
+export LLM_MODEL_NAME="local-model"
+export LLM_API_KEY="dummy"
+```
+
+#### OpenAI
+
+```bash
+export LLM_BASE_URL="https://api.openai.com/v1"
+export LLM_MODEL_NAME="gpt-4"
+export LLM_API_KEY="your-openai-api-key-here"
+```
+
+または GPT-3.5 Turbo の場合：
+
+```bash
+export LLM_BASE_URL="https://api.openai.com/v1"
+export LLM_MODEL_NAME="gpt-3.5-turbo"
+export LLM_API_KEY="your-openai-api-key-here"
+```
+
+#### Anthropic Claude
+
+```bash
+export LLM_BASE_URL="https://api.anthropic.com"
+export LLM_MODEL_NAME="claude-3-sonnet-20240229"
+export LLM_API_KEY="your-anthropic-api-key-here"
+```
+
+#### その他の設定
+
+```bash
+# LLM動作設定
+export LLM_TEMPERATURE="0.3"  # 創造性レベル（0.0-1.0）
 
 # システム設定
 export DEBUG="false"
 export LANGSMITH_PROJECT="s-style-agent"
 ```
+
+### MCP設定（オプション）
+
+Model Context Protocol（MCP）対応のツールを使用する場合：
+
+1. `mcp.json.example` をコピーして `mcp.json` を作成
+2. 必要なAPI KEYを設定
+3. システム起動時に自動で利用可能になります
 
 ## 使用方法
 

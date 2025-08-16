@@ -2,6 +2,27 @@
 設定管理
 
 システム設定とLLM接続設定
+
+環境変数による設定例:
+# ローカルLLM (デフォルト)
+export LLM_BASE_URL="http://localhost:1234/v1"
+export LLM_MODEL_NAME="local-model"
+export LLM_API_KEY="dummy"
+
+# OpenAI GPT-4
+export LLM_BASE_URL="https://api.openai.com/v1"
+export LLM_MODEL_NAME="gpt-4"
+export LLM_API_KEY="your-openai-api-key-here"
+
+# OpenAI GPT-3.5 Turbo
+export LLM_BASE_URL="https://api.openai.com/v1"
+export LLM_MODEL_NAME="gpt-3.5-turbo"
+export LLM_API_KEY="your-openai-api-key-here"
+
+# Anthropic Claude
+export LLM_BASE_URL="https://api.anthropic.com"
+export LLM_MODEL_NAME="claude-3-sonnet-20240229"
+export LLM_API_KEY="your-anthropic-api-key-here"
 """
 
 import os
@@ -10,10 +31,19 @@ from pydantic import BaseModel
 
 
 class LLMConfig(BaseModel):
-    """LLM設定"""
-    base_url: str = "http://192.168.79.1:1234/v1"
-    model_name: str = "openai/gpt-oss-20b"
-    api_key: str = "dummy"
+    """LLM設定
+    
+    デフォルトはローカルLLMサーバー用の設定です。
+    OpenAIやその他のクラウドAPIを使用する場合は環境変数で設定してください。
+    
+    例:
+    - ローカルLLM: base_url="http://localhost:1234/v1", api_key="dummy"
+    - OpenAI: base_url="https://api.openai.com/v1", api_key="sk-..."
+    - Anthropic: base_url="https://api.anthropic.com", api_key="sk-ant-..."
+    """
+    base_url: str = "http://localhost:1234/v1"  # デフォルトをlocalhostに変更
+    model_name: str = "local-model"  # 一般的な名前に変更
+    api_key: str = "dummy"  # ローカルLLM用ダミーキー
     temperature: float = 0.3
     max_tokens: Optional[int] = None
 

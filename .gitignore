@@ -5,6 +5,8 @@ build/
 dist/
 wheels/
 *.egg-info
+.mypy_cache/
+.pytest_cache/
 
 # Virtual environments
 .venv
@@ -13,13 +15,25 @@ env/
 
 # Environment variables and secrets
 .env
+.env.*
 .env.local
 .env.*.local
 *.key
 *.pem
+*.secret
+secrets/
+config/secrets.json
+
+# API Keys and authentication
+*apikey*
+*api_key*
+*API_KEY*
+*.token
+auth.json
 
 # MCP configuration with API keys
 mcp.json
+mcp.*.json
 
 # Claude Code configuration
 .claude/

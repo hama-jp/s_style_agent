@@ -19,19 +19,24 @@ from ..core.async_evaluator import AsyncContextualEvaluator, AsyncEnvironment
 from ..tools.builtin_tools import register_builtin_tools
 from ..tools.base import global_registry
 from ..mcp.manager import mcp_manager
+from ..config.settings import settings
 
 
 class SStyleAgentCLI:
     """S式エージェントCLI"""
     
-    def __init__(self, llm_base_url: str = "http://192.168.79.1:1234/v1",
-                 model_name: str = "openai/gpt-oss-20b",
+    def __init__(self, llm_base_url: str = None,
+                 model_name: str = None,
                  use_async: bool = True):
+        # 設定値を取得（引数が指定されていない場合は設定ファイルから）
+        llm_base_url = llm_base_url or settings.llm.base_url
+        model_name = model_name or settings.llm.model_name
+        
         self.llm = ChatOpenAI(
             base_url=llm_base_url,
-            api_key="dummy",
+            api_key=settings.llm.api_key,
             model=model_name,
-            temperature=0.3
+            temperature=settings.llm.temperature
         )
         self.use_async = use_async
         
