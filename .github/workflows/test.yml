@@ -1,0 +1,98 @@
+name: Tests
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Test imports and basic functionality
+      run: |
+        uv run python -c "
+        from s_style_agent.config.settings import settings
+        from s_style_agent.core.parser import parse_s_expression
+        from s_style_agent.core.evaluator import ContextualEvaluator, Environment
+        print('✅ All imports successful')
+        
+        # Test basic parsing
+        expr = parse_s_expression('(+ 2 3)')
+        print(f'✅ Parsing works: {expr}')
+        
+        # Test basic evaluation
+        evaluator = ContextualEvaluator()
+        env = Environment()
+        result = evaluator._evaluate_basic(expr, env)
+        print(f'✅ Evaluation works: {result}')
+        
+        assert result == 5, f'Expected 5, got {result}'
+        print('✅ All basic tests passed')
+        "
+    
+    - name: Test S-expression evaluation
+      run: |
+        uv run python -c "
+        from s_style_agent.core.parser import parse_s_expression
+        from s_style_agent.core.evaluator import ContextualEvaluator, Environment
+        
+        evaluator = ContextualEvaluator()
+        env = Environment()
+        
+        test_cases = [
+            ('(+ 2 3)', 5),
+            ('(< 5 10)', True),
+            ('(if (< 3 5) \"smaller\" \"larger\")', 'smaller')
+        ]
+        
+        for expr_str, expected in test_cases:
+            expr = parse_s_expression(expr_str)
+            result = evaluator._evaluate_basic(expr, env)
+            assert result == expected, f'Failed: {expr_str} -> {result} != {expected}'
+            print(f'✅ {expr_str} -> {result}')
+        
+        print('✅ All S-expression tests passed')
+        "
+
+    - name: Test configuration system
+      run: |
+        uv run python -c "
+        import os
+        from s_style_agent.config.settings import Settings
+        
+        # Test default settings
+        settings = Settings()
+        assert settings.llm.base_url == 'http://localhost:1234/v1'
+        print('✅ Default settings work')
+        
+        # Test environment variable override
+        os.environ['LLM_BASE_URL'] = 'https://api.openai.com/v1'
+        os.environ['LLM_MODEL_NAME'] = 'gpt-4'
+        settings = Settings()
+        assert settings.llm.base_url == 'https://api.openai.com/v1'
+        assert settings.llm.model_name == 'gpt-4'
+        print('✅ Environment variable override works')
+        "
+      env:
+        LLM_BASE_URL: https://api.openai.com/v1
+        LLM_MODEL_NAME: gpt-4
+        LLM_API_KEY: dummy-for-testing
