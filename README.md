@@ -2,6 +2,12 @@
 
 S式を応用した説明可能なエージェントシステムの試作実装です。
 
+## 🌐 言語 / Languages
+
+- 🇯🇵 **日本語** (このファイル)
+- 🇺🇸 **[English](README_EN.md)**
+- 📖 **[その他の言語 / Other Languages](docs/README_languages.md)**
+
 ## 概要
 
 このシステムは、LLMが生成するS式（S-expression）を通じてタスクを実行する、説明可能なエージェントアーキテクチャを提供します。
