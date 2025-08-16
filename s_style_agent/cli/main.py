@@ -52,6 +52,10 @@ class SStyleAgentCLI:
         
         print("S式エージェントシステムへようこそ！")
         print(f"実行モード: {'非同期' if use_async else '同期'}")
+        
+        # MCP自動初期化
+        print("MCPシステムを自動初期化中...")
+        # 非同期初期化は後で run() メソッド内で実行
         print("利用可能コマンド:")
         print("  /help      - ヘルプを表示")
         print("  /generate  - LLMでS式を生成")
@@ -260,6 +264,21 @@ S式エージェントシステム ヘルプ
     
     async def run(self):
         """メインループ"""
+        # MCP自動初期化
+        if not self.mcp_initialized:
+            try:
+                success = await mcp_manager.initialize()
+                if success:
+                    self.mcp_initialized = True
+                    tools = mcp_manager.list_available_tools()
+                    print(f"✅ MCPシステム初期化完了 - {len(tools)}個のツールが利用可能")
+                    if tools:
+                        print(f"   利用可能なMCPツール: {', '.join(tools)}")
+                else:
+                    print("⚠️  MCPシステムの初期化に失敗しました（通常機能は利用可能）")
+            except Exception as e:
+                print(f"⚠️  MCP初期化エラー: {e} （通常機能は利用可能）")
+        
         while True:
             try:
                 user_input = input("\n> ").strip()
@@ -275,6 +294,10 @@ S式エージェントシステム ヘルプ
                         self.print_help()
                     elif command == "exit":
                         print("S式エージェントを終了します。")
+                        # MCPシステムをクリーンアップ
+                        if self.mcp_initialized:
+                            print("MCPシステムを終了中...")
+                            await mcp_manager.shutdown()
                         break
                     elif command == "history":
                         self.show_history()
@@ -314,8 +337,7 @@ S式エージェントシステム ヘルプ
                         s_expr = input("実行するS式を入力してください: ").strip()
                         if s_expr:
                             context = input("文脈（オプション）: ").strip()
-                            print("
-実行中...")
+                            print("実行中...")
                             result = await self.execute_s_expression(s_expr, context)
                             print(f"実行結果: {result}")
                     elif command == "mcp":
@@ -359,14 +381,17 @@ S式エージェントシステム ヘルプ
                         
             except KeyboardInterrupt:
                 print("\n\nS式エージェントを終了します。")
+                # MCPシステムをクリーンアップ
+                if self.mcp_initialized:
+                    print("MCPシステムを終了中...")
+                    await mcp_manager.shutdown()
                 break
             except Exception as e:
                 print(f"エラーが発生しました: {str(e)}")
     
     async def handle_mcp_command(self):
         """MCPコマンドを処理"""
-        print("
-=== MCP (Model Context Protocol) 管理 ===")
+        print("=== MCP (Model Context Protocol) 管理 ===")
         print("1. init      - MCPシステムを初期化")
         print("2. status    - MCPシステム状態を表示")
         print("3. tools     - MCPツール一覧を表示")
@@ -374,8 +399,7 @@ S式エージェントシステム ヘルプ
         print("5. restart   - サーバーを再起動")
         print("6. shutdown  - MCPシステムを停止")
         
-        choice = input("
-選択してください (1-6): ").strip()
+        choice = input("選択してください (1-6): ").strip()
         
         if choice == "1":
             await self.init_mcp()
@@ -418,8 +442,7 @@ S式エージェントシステム ヘルプ
         """MCPシステムの状態を表示"""
         status = mcp_manager.get_system_status()
         
-        print("
-=== MCPシステム状態 ===")
+        print("=== MCPシステム状態 ===")
         print(f"初期化済み: {status['initialized']}")
         print(f"サーバー起動済み: {status['servers_started']}")
         print(f"ツール登録済み: {status['tools_registered']}")
@@ -441,8 +464,7 @@ S式エージェントシステム ヘルプ
             print("MCPツールが登録されていません")
             return
         
-        print(f"
-=== MCPツール一覧 ({len(tools)}個) ===")
+        print(f"=== MCPツール一覧 ({len(tools)}個) ===")
         for tool_name in tools:
             info = mcp_manager.get_tool_info(tool_name)
             if info:
@@ -462,8 +484,7 @@ S式エージェントシステム ヘルプ
         print("ヘルスチェック実行中...")
         health_status = await mcp_manager.health_check()
         
-        print("
-=== サーバーヘルスチェック結果 ===")
+        print("=== サーバーヘルスチェック結果 ===")
         for server_id, is_healthy in health_status.items():
             status_icon = "✅" if is_healthy else "❌"
             status_text = "正常" if is_healthy else "異常"

@@ -293,7 +293,61 @@ class ContextualEvaluator:
         elif op == 'search':
             query = self._evaluate_basic(args[0], env)
             print(f"[SEARCH] Query: {query}")
-            return f"検索結果: {query}"
+            
+            # MCPツールが利用可能な場合はそれを使用
+            from ..mcp.manager import mcp_manager
+            from ..mcp.robust_client import robust_mcp_client
+            
+            if mcp_manager.initialized:
+                available_tools = robust_mcp_client.list_tools()
+                
+                # 検索ツールを優先順位で選択
+                search_tools = []
+                if 'brave_web_search' in available_tools:
+                    search_tools.append('brave_web_search')
+                if 'brave_local_search' in available_tools:
+                    search_tools.append('brave_local_search')
+                
+                if search_tools:
+                    # Web検索を優先的に使用
+                    selected_tool = search_tools[0]
+                    print(f"[SEARCH] MCPツール '{selected_tool}' を使用して検索中...")
+                    
+                    try:
+                        import asyncio
+                        import concurrent.futures
+                        
+                        # 新しいスレッドで非同期処理を実行
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(
+                                asyncio.run,
+                                robust_mcp_client.call_tool(selected_tool, {"query": str(query)})
+                            )
+                            result = future.result(timeout=30)
+                        
+                        if result.get("success"):
+                            # 検索結果をLLMで抽出・要約
+                            raw_result = result.get("result")
+                            try:
+                                from ..tools.search_result_extractor import search_extractor
+                                extracted_info = search_extractor.extract_information(str(query), raw_result)
+                                print(f"[SEARCH] 抽出された情報: {extracted_info}")
+                                return extracted_info
+                            except Exception as e:
+                                print(f"[SEARCH] 情報抽出エラー: {e}")
+                                return raw_result
+                        else:
+                            print(f"[SEARCH] MCPツールエラー: {result.get('error')}")
+                            return f"検索エラー: {result.get('error')}"
+                    except Exception as e:
+                        print(f"[SEARCH] MCP検索実行エラー: {e}")
+                        return f"検索実行エラー: {e}"
+                else:
+                    print("[SEARCH] MCPツールは初期化されているが検索ツールが見つかりません")
+                    return f"ダミー検索結果: {query}"
+            else:
+                print("[SEARCH] MCPツールが初期化されていません。ダミー結果を返します")
+                return f"ダミー検索結果: {query}"
         elif op == 'calc':
             expression = self._evaluate_basic(args[0], env)
             try:
