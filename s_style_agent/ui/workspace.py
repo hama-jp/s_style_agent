@@ -451,3 +451,53 @@ class WorkspaceTab(Container):
             radio_set = self.query_one("#input_mode", RadioSet)
             history_radio = self.query_one("#history_mode", RadioButton)
             radio_set.pressed_button = history_radio
+
+    async def save_current_content(self) -> None:
+        """現在のワークスペース内容を保存"""
+        try:
+            # S式入力の内容を取得
+            s_expr_input = self.query_one("#s_expr_input", TextArea)
+            current_s_expr = s_expr_input.text.strip()
+            
+            # 自然言語入力の内容を取得
+            natural_input = self.query_one("#natural_input", TextArea)
+            current_query = natural_input.text.strip()
+            
+            if not current_s_expr and not current_query:
+                self.app.notify("保存する内容がありません", severity="warning")
+                return
+            
+            # 現在の日時でファイル名を生成
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"workspace_save_{timestamp}.txt"
+            
+            # 保存内容を構築
+            save_content = []
+            save_content.append(f"# S式エージェント ワークスペース保存")
+            save_content.append(f"# 保存日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            save_content.append("")
+            
+            if current_query:
+                save_content.append("## 自然言語入力")
+                save_content.append(current_query)
+                save_content.append("")
+            
+            if current_s_expr:
+                save_content.append("## S式")
+                save_content.append(current_s_expr)
+                save_content.append("")
+            
+            if self.last_result:
+                save_content.append("## 最後の実行結果")
+                save_content.append(str(self.last_result))
+                save_content.append("")
+            
+            # ファイルに保存
+            save_path = f"./{filename}"
+            with open(save_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(save_content))
+            
+            self.app.notify(f"ワークスペースを {filename} に保存しました", severity="information")
+            
+        except Exception as e:
+            self.app.notify(f"保存エラー: {e}", severity="error")

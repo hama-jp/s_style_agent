@@ -125,6 +125,7 @@ class TraceViewer(App):
         Binding("c", "clear", "クリア"),
         Binding("s", "step", "ステップ実行"),
         Binding("space", "toggle_pause", "一時停止"),
+        Binding("ctrl+w", "back_to_workspace", "ワークスペースに戻る"),
     ]
     
     # リアクティブ変数
@@ -390,6 +391,13 @@ class TraceViewer(App):
             status.update("一時停止中...")
         else:
             status.update("実行中...")
+
+    
+    def action_back_to_workspace(self) -> None:
+        """ワークスペースに戻る"""
+        # トレースビューアを終了してメインアプリのワークスペースタブに戻る
+        self.notify("ワークスペースに戻ります...")
+        self.exit()
 
 
 

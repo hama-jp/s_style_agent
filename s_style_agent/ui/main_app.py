@@ -73,16 +73,19 @@ class MainTUIApp(App):
     
     BINDINGS = [
         Binding("ctrl+q", "quit", "終了", priority=True),
-        Binding("ctrl+c", "switch_to_cli", "CLIモード", priority=True),
         Binding("f1", "show_help", "ヘルプ"),
         Binding("f2", "quick_generate", "S式生成"),
-        Binding("f3", "show_history", "履歴"),
-        Binding("f4", "show_settings", "設定"),
-        Binding("f5", "execute", "実行"),
+        Binding("f3", "focus_execution", "実行"),
+        Binding("f4", "save_current", "保存"),
+        Binding("f5", "show_history", "履歴"),
+        Binding("f6", "show_settings", "設定"),
+        Binding("f7", "toggle_mode", "モード切替"),
+        Binding("f8", "run_benchmark", "ベンチマーク"),
         Binding("ctrl+g", "focus_generation", "生成モード"),
         Binding("ctrl+e", "focus_execution", "実行モード"),
         Binding("ctrl+h", "focus_history", "履歴表示"),
         Binding("ctrl+t", "show_trace", "トレース表示"),
+        Binding("ctrl+w", "focus_workspace", "ワークスペース"),
     ]
     
     # リアクティブ変数
@@ -113,12 +116,12 @@ class MainTUIApp(App):
         yield Header()
         
         with Container(classes="main-container"):
-            with TabbedContent(initial="dashboard"):
-                with TabPane("ダッシュボード", id="dashboard"):
-                    yield DashboardTab(app=self)
-                    
+            with TabbedContent(initial="workspace"):
                 with TabPane("ワークスペース", id="workspace"):
                     yield WorkspaceTab(app=self)
+                    
+                with TabPane("ダッシュボード", id="dashboard"):
+                    yield DashboardTab(app=self)
                     
                 with TabPane("履歴管理", id="history"):
                     yield HistoryTab(app=self)
@@ -128,11 +131,15 @@ class MainTUIApp(App):
             
             # クイックアクションバー
             with Container(classes="quick-actions"):
-                yield Button("ヘルプ (F1)", id="help_btn", variant="primary")
                 yield Button("生成 (F2)", id="generate_btn", variant="success")
-                yield Button("履歴 (F3)", id="history_btn")
-                yield Button("設定 (F4)", id="settings_btn")
-                yield Button("実行 (F5)", id="execute_btn", variant="warning")
+                yield Button("実行 (F3)", id="execute_btn", variant="warning")
+                yield Button("保存 (F4)", id="save_btn")
+                yield Button("履歴 (F5)", id="history_btn")
+                yield Button("設定 (F6)", id="settings_btn")
+                yield Button("モード切替 (F7)", id="toggle_mode_btn")
+                yield Button("ベンチマーク (F8)", id="benchmark_btn")
+                yield Button("終了 (Ctrl+Q)", id="quit_btn", variant="error")
+                yield Button("ヘルプ (F1)", id="help_btn", variant="primary")
             
             # ステータスバー
             with Container(classes="status-bar"):
@@ -174,16 +181,24 @@ class MainTUIApp(App):
         """ボタンクリック処理"""
         button_id = event.button.id
         
-        if button_id == "help_btn":
-            await self.action_show_help()
-        elif button_id == "generate_btn":
+        if button_id == "generate_btn":
             await self.action_quick_generate()
+        elif button_id == "execute_btn":
+            await self.action_focus_execution()
+        elif button_id == "save_btn":
+            await self.action_save_current()
         elif button_id == "history_btn":
             await self.action_show_history()
         elif button_id == "settings_btn":
             await self.action_show_settings()
-        elif button_id == "execute_btn":
-            await self.action_execute()
+        elif button_id == "toggle_mode_btn":
+            await self.action_toggle_mode()
+        elif button_id == "benchmark_btn":
+            await self.action_run_benchmark()
+        elif button_id == "quit_btn":
+            self.exit()
+        elif button_id == "help_btn":
+            await self.action_show_help()
     
     # アクション実装
     async def action_show_help(self) -> None:
@@ -192,19 +207,20 @@ class MainTUIApp(App):
 S式エージェントシステム - ヘルプ
 
 【キーボードショートカット】
-F1: ヘルプ表示      F2: S式生成
-F3: 履歴表示        F4: 設定表示
-F5: 実行            
+F1: ヘルプ表示      F2: S式生成      F3: 実行
+F4: 保存            F5: 履歴         F6: 設定
+F7: モード切替      F8: ベンチマーク
 
 Ctrl+G: 生成モード  Ctrl+E: 実行モード
 Ctrl+H: 履歴表示    Ctrl+T: トレース表示
-Ctrl+C: CLIモード   Ctrl+Q: 終了
+Ctrl+W: ワークスペース  Ctrl+Q: 終了
 
 【基本操作】
 1. ワークスペースタブでS式を入力・生成
-2. 実行ボタンまたはF5で実行
+2. 実行ボタンまたはF3で実行
 3. 履歴タブで過去の実行結果を確認
 4. 設定タブでシステム設定を変更
+5. F7でモード切替、F8でベンチマーク実行
         """
         self.notify(help_text, title="ヘルプ", timeout=10)
     
@@ -228,21 +244,27 @@ Ctrl+C: CLIモード   Ctrl+Q: 終了
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "settings"
     
-    async def action_execute(self) -> None:
-        """実行"""
-        # 現在のタブに応じて実行処理
+    async def action_save_current(self) -> None:
+        """現在の内容を保存"""
         tabbed_content = self.query_one(TabbedContent)
         if tabbed_content.active == "workspace":
             workspace = self.query_one(WorkspaceTab)
-            await workspace.execute_current_expression()
+            await workspace.save_current_content()
+        else:
+            self.notify("保存機能は現在ワークスペースタブでのみ利用可能です")
     
-    async def action_switch_to_cli(self) -> None:
-        """CLIモードに切り替え"""
-        self.notify("CLIモードに切り替えます...")
-        # TODO: CLIモード切り替え実装
-        # 現在は通知のみ
-        await asyncio.sleep(1)
-        self.exit()
+    async def action_toggle_mode(self) -> None:
+        """実行モードを切り替え"""
+        self.toggle_execution_mode()
+    
+    async def action_run_benchmark(self) -> None:
+        """ベンチマークを実行"""
+        self.notify("ベンチマークを実行中...")
+        try:
+            results = await self.run_benchmark()
+            self.notify(f"ベンチマーク完了: 同期={results.get('sync', 'N/A')}s, 非同期={results.get('async', 'N/A')}s")
+        except Exception as e:
+            self.notify(f"ベンチマーク実行エラー: {e}", severity="error")
     
     async def action_focus_generation(self) -> None:
         """生成モードにフォーカス"""
@@ -258,6 +280,12 @@ Ctrl+C: CLIモード   Ctrl+Q: 終了
     async def action_focus_history(self) -> None:
         """履歴表示にフォーカス"""
         await self.action_show_history()
+    
+    async def action_focus_workspace(self) -> None:
+        """ワークスペースにフォーカス"""
+        tabbed_content = self.query_one(TabbedContent)
+        tabbed_content.active = "workspace"
+        self.notify("ワークスペースに切り替えました")
     
     async def action_show_trace(self) -> None:
         """トレース表示"""
