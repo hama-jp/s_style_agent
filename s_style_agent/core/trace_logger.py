@@ -36,6 +36,15 @@ class ExecutionMetadata:
     mcp_params: Optional[Dict[str, Any]] = None   # MCPツールパラメータ
     mcp_duration_ms: Optional[float] = None       # MCP呼び出し時間
     mcp_success: Optional[bool] = None            # MCP呼び出し成功フラグ
+    
+    # 階層構造メタデータ（サブツリー折りたたみ用）
+    depth: int = 0                                # S式ツリー内の深度
+    parent_path: Optional[List[int]] = None       # 親ノードのパス
+    has_children: bool = False                    # 子ノードの有無
+    child_count: int = 0                          # 子ノード数
+    subtree_duration_ms: Optional[float] = None   # サブツリー全体の実行時間
+    subtree_operation_count: int = 0              # サブツリー内の操作数
+    is_collapsed: bool = False                    # 折りたたみ状態（UI用）            # MCP呼び出し成功フラグ
 
 
 @dataclass
@@ -66,7 +75,7 @@ class TraceLogger:
         self.entries: List[TraceEntry] = []
         self.current_path: List[int] = []
         
-    def start_operation(self, operation: str, input_data: Any) -> int:
+    def start_operation(self, operation: str, input_data: Any, explanation: str = "") -> int:
         """操作開始をログ"""
         entry_id = len(self.entries)
         entry = TraceEntry(
@@ -76,7 +85,7 @@ class TraceLogger:
             input=input_data,
             output=None,
             duration_ms=0,
-            explanation="",
+            explanation=explanation,
             metadata=ExecutionMetadata()
         )
         self.entries.append(entry)
@@ -163,6 +172,120 @@ class TraceLogger:
                 f.write(entry.to_json_line() + '\n')
         except Exception as e:
             print(f"ログ書き込みエラー: {e}")
+
+    def analyze_tree_structure(self) -> None:
+        """エントリ全体の階層構造を分析してメタデータを更新"""
+        # パス -> エントリマップを作成
+        path_to_entries: Dict[tuple, List[TraceEntry]] = {}
+        for entry in self.entries:
+            path_tuple = tuple(entry.path)
+            if path_tuple not in path_to_entries:
+                path_to_entries[path_tuple] = []
+            path_to_entries[path_tuple].append(entry)
+        
+        # 各エントリの階層情報を更新
+        for entry in self.entries:
+            self._update_hierarchy_metadata(entry, path_to_entries)
+    
+    def _update_hierarchy_metadata(self, entry: TraceEntry, path_to_entries: Dict[tuple, List[TraceEntry]]) -> None:
+        """個別エントリの階層メタデータを更新"""
+        path_tuple = tuple(entry.path)
+        
+        # 深度を設定
+        entry.metadata.depth = len(entry.path)
+        
+        # 親パスを設定
+        if entry.path:
+            entry.metadata.parent_path = entry.path[:-1]
+        
+        # 子ノードを検索
+        children = self._find_child_entries(entry, path_to_entries)
+        entry.metadata.has_children = len(children) > 0
+        entry.metadata.child_count = len(children)
+        
+        # サブツリー統計を計算
+        if children:
+            self._calculate_subtree_stats(entry, children)
+    
+    def _find_child_entries(self, parent_entry: TraceEntry, path_to_entries: Dict[tuple, List[TraceEntry]]) -> List[TraceEntry]:
+        """指定エントリの直接の子エントリを検索"""
+        children = []
+        parent_path_len = len(parent_entry.path)
+        
+        for entry in self.entries:
+            # 子ノードの条件: パスの長さが親+1で、先頭部分が親パスと一致
+            if (len(entry.path) == parent_path_len + 1 and 
+                entry.path[:parent_path_len] == parent_entry.path):
+                children.append(entry)
+        
+        return children
+    
+    def _calculate_subtree_stats(self, parent_entry: TraceEntry, children: List[TraceEntry]) -> None:
+        """サブツリーの統計情報を計算"""
+        # サブツリー内のすべてのエントリを収集
+        subtree_entries = self._collect_subtree_entries(parent_entry)
+        
+        # 合計実行時間を計算
+        total_duration = sum(entry.duration_ms for entry in subtree_entries if entry.duration_ms > 0)
+        parent_entry.metadata.subtree_duration_ms = total_duration
+        
+        # 操作数をカウント
+        parent_entry.metadata.subtree_operation_count = len(subtree_entries)
+    
+    def _collect_subtree_entries(self, root_entry: TraceEntry) -> List[TraceEntry]:
+        """指定エントリをルートとするサブツリー内のすべてのエントリを収集"""
+        subtree_entries = []
+        root_path = root_entry.path
+        
+        for entry in self.entries:
+            # サブツリーの条件: パスが親パスで始まる（親パス含む）
+            if (len(entry.path) >= len(root_path) and 
+                entry.path[:len(root_path)] == root_path):
+                subtree_entries.append(entry)
+        
+        return subtree_entries
+    
+    def get_tree_summary(self) -> Dict[str, Any]:
+        """ツリー構造のサマリーを取得"""
+        self.analyze_tree_structure()
+        
+        # 深度別統計
+        depth_stats = {}
+        total_operations = len(self.entries)
+        total_duration = sum(entry.duration_ms for entry in self.entries if entry.duration_ms > 0)
+        
+        for entry in self.entries:
+            depth = entry.metadata.depth
+            if depth not in depth_stats:
+                depth_stats[depth] = {"count": 0, "duration_ms": 0}
+            depth_stats[depth]["count"] += 1
+            depth_stats[depth]["duration_ms"] += entry.duration_ms or 0
+        
+        return {
+            "total_operations": total_operations,
+            "total_duration_ms": total_duration,
+            "max_depth": max(depth_stats.keys()) if depth_stats else 0,
+            "depth_statistics": depth_stats,
+            "tree_complexity": self._calculate_tree_complexity()
+        }
+    
+    def _calculate_tree_complexity(self) -> Dict[str, int]:
+        """ツリーの複雑度指標を計算"""
+        complexity = {
+            "leaf_nodes": 0,       # 葉ノード数
+            "branch_nodes": 0,     # 分岐ノード数
+            "max_children": 0,     # 最大子ノード数
+            "total_nodes": len(self.entries)
+        }
+        
+        for entry in self.entries:
+            if entry.metadata.has_children:
+                complexity["branch_nodes"] += 1
+                complexity["max_children"] = max(complexity["max_children"], entry.metadata.child_count)
+            else:
+                complexity["leaf_nodes"] += 1
+        
+        return complexity
 
 
 # グローバルロガーインスタンス

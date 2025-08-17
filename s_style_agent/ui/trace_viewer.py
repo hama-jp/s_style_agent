@@ -4,10 +4,11 @@ S式実行トレースビューア（Textualベース）
 リアルタイムでS式評価の実行状況を表示するTUIアプリケーション
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 import json
 import time
+import os
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -27,42 +28,148 @@ from ..core.parser import parse_s_expression
 from ..core.evaluator import ContextualEvaluator, Environment
 
 
-class SExpressionNode:
-    """S式ノードの表示用クラス"""
-    def __init__(self, data: Any, path: List[int], depth: int = 0):
-        self.data = data
-        self.path = path
-        self.depth = depth
-        self.children: List['SExpressionNode'] = []
-        self.execution_state = "pending"  # pending, executing, completed, error
-        self.result = None
-        self.duration_ms = 0
-        
-    def add_child(self, child: 'SExpressionNode'):
-        self.children.append(child)
+class ExpandableTraceNode:
+    """S式実行トレースの展開可能ノード（NEXT_PHASE_PLANに従った設計）"""
     
-    @property
-    def display_text(self) -> str:
-        """表示用のテキストを生成"""
-        if isinstance(self.data, str):
-            return f"'{self.data}'"
-        elif isinstance(self.data, list) and len(self.data) > 0:
-            op = self.data[0]
-            arg_count = len(self.data) - 1
-            return f"({op} ...{arg_count}args)"
-        else:
-            return str(self.data)
+    def __init__(self, operation: str, s_expr: str, children: List['ExpandableTraceNode'] = None):
+        self.operation = operation
+        self.s_expr = s_expr
+        self.children = children or []
+        self.is_expanded = True  # デフォルトは展開
+        self.execution_status = "pending"  # pending, running, completed, error
+        self.duration_ms = 0
+        self.result = None
+        self.path: List[int] = []  # ツリー内でのパス
+        self.depth = 0
+        
+        # トレース情報
+        self.metadata = {}
+        self.trace_entry = None
+        
+        # UI状態
+        self.textual_node = None  # TextualのTreeNodeへの参照
+        self.parent_node = None
+    
+    def add_child(self, child: 'ExpandableTraceNode'):
+        """子ノードを追加"""
+        child.parent_node = self
+        child.depth = self.depth + 1
+        child.path = self.path + [len(self.children)]
+        self.children.append(child)
+        return child
+    
+    def toggle_expansion(self):
+        """展開/折りたたみを切り替え"""
+        old_state = self.is_expanded
+        self.is_expanded = not self.is_expanded
+        
+        # デバッグログ（必要時のみ）
+        try:
+            from .debug_logger import get_debug_logger
+            logger = get_debug_logger()
+            logger.trace("NODE", "toggle", f"{self.operation}: {old_state} → {self.is_expanded}", {
+                "path": self.path,
+                "children_count": len(self.children),
+                "depth": self.depth
+            })
+        except:
+            pass  # ログエラーは無視
+        
+        return self.is_expanded
+    
+    def set_execution_status(self, status: str, duration_ms: float = 0, result=None):
+        """実行状態を更新"""
+        self.execution_status = status
+        self.duration_ms = duration_ms
+        self.result = result
     
     @property
     def status_emoji(self) -> str:
         """実行状態の絵文字"""
         status_map = {
-            "pending": "⏳",
-            "executing": "🔄", 
-            "completed": "✅",
-            "error": "❌"
+            "pending": "⚪",  # 待機中
+            "running": "🟡",  # 実行中
+            "completed": "🟢",  # 完了
+            "error": "🔴"     # エラー
         }
-        return status_map.get(self.execution_state, "❓")
+        return status_map.get(self.execution_status, "❓")
+    
+    @property
+    def expansion_emoji(self) -> str:
+        """展開状態の絵文字"""
+        if not self.children:
+            return "  "  # 子ノードなしは空白
+        return "▼" if self.is_expanded else "▶"
+    
+    @property
+    def display_label(self) -> str:
+        """表示用ラベル"""
+        duration_text = f" ({self.duration_ms:.1f}ms)" if self.duration_ms > 0 else ""
+        expansion = self.expansion_emoji
+        status = self.status_emoji
+        
+        # S式を適切に短縮
+        s_expr_display = self.s_expr
+        if len(s_expr_display) > 60:
+            s_expr_display = s_expr_display[:57] + "..."
+        
+        return f"{expansion} {status} {self.operation}: {s_expr_display}{duration_text}"
+    
+    def get_visible_children(self) -> List['ExpandableTraceNode']:
+        """展開されている場合のみ子ノードを返す"""
+        return self.children if self.is_expanded else []
+    
+    def find_node_by_path(self, path: List[int]) -> Optional['ExpandableTraceNode']:
+        """パスを指定してノードを検索"""
+        if not path:
+            return self
+            
+        if path[0] >= len(self.children):
+            return None
+            
+        return self.children[path[0]].find_node_by_path(path[1:])
+    
+    def collect_all_descendants(self) -> List['ExpandableTraceNode']:
+        """すべての子孫ノードを収集（展開状態に関係なく）"""
+        descendants = []
+        for child in self.children:
+            descendants.append(child)
+            descendants.extend(child.collect_all_descendants())
+        return descendants
+    
+    def to_dict(self) -> dict:
+        """シリアライゼーション用辞書変換"""
+        return {
+            "operation": self.operation,
+            "s_expr": self.s_expr,
+            "is_expanded": self.is_expanded,
+            "execution_status": self.execution_status,
+            "duration_ms": self.duration_ms,
+            "result": str(self.result) if self.result is not None else None,
+            "path": self.path,
+            "depth": self.depth,
+            "children": [child.to_dict() for child in self.children]
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'ExpandableTraceNode':
+        """辞書からの復元"""
+        node = cls(
+            operation=data["operation"],
+            s_expr=data["s_expr"]
+        )
+        node.is_expanded = data.get("is_expanded", True)
+        node.execution_status = data.get("execution_status", "pending")
+        node.duration_ms = data.get("duration_ms", 0)
+        node.path = data.get("path", [])
+        node.depth = data.get("depth", 0)
+        
+        # 子ノードを再帰的に復元
+        for child_data in data.get("children", []):
+            child = cls.from_dict(child_data)
+            node.add_child(child)
+        
+        return node
 
 
 class TraceViewer(App):
@@ -124,8 +231,13 @@ class TraceViewer(App):
         Binding("r", "refresh", "更新"),
         Binding("c", "clear", "クリア"),
         Binding("s", "step", "ステップ実行"),
-        Binding("space", "toggle_pause", "一時停止"),
+        Binding("space", "toggle_expansion", "展開/折りたたみ"),
+        Binding("enter", "select_node", "ノード選択"),
+        Binding("up", "navigate_up", "上に移動"),
+        Binding("down", "navigate_down", "下に移動"),
         Binding("ctrl+w", "back_to_workspace", "ワークスペースに戻る"),
+        Binding("d", "toggle_debug_level", "デバッグレベル切替"),
+        Binding("l", "show_debug_log", "デバッグログ表示"),
     ]
     
     # リアクティブ変数
@@ -140,6 +252,19 @@ class TraceViewer(App):
         self.evaluator = ContextualEvaluator()
         self.env = Environment()
         self.last_processed_entry = -1
+        
+        # 新機能: 展開可能ツリー管理
+        self.root_trace_node: Optional[ExpandableTraceNode] = None
+        self.trace_node_map: Dict[tuple, ExpandableTraceNode] = {}  # パス -> ノードのマップ
+        self.selected_node: Optional[ExpandableTraceNode] = None
+        
+        # デバッグログ機能
+        from .debug_logger import get_debug_logger
+        self.debug_logger = get_debug_logger()
+        self.debug_logger.info("TUI", "init", "TraceViewer初期化開始", {
+            "trace_logger": str(type(self.trace_logger).__name__),
+            "evaluator": str(type(self.evaluator).__name__)
+        })
         
     def compose(self) -> ComposeResult:
         """UIレイアウトを構成"""
@@ -176,33 +301,54 @@ class TraceViewer(App):
     
     def on_mount(self) -> None:
         """アプリ起動時の初期化"""
+        self.debug_logger.info("TUI", "mount", "TraceViewer UI構築開始")
+        
         # データテーブルの列を設定（MCP情報を追加）
         table = self.query_one("#trace_details", DataTable)
         table.add_columns("操作", "入力", "出力", "時間(ms)", "プロベナンス", "MCP", "状態")
+        self.debug_logger.debug("TUI", "table_setup", "データテーブル列設定完了")
         
         # 定期更新を設定（100ms間隔）
         self.set_interval(0.1, self.update_trace_display)
+        self.debug_logger.info("TUI", "interval_setup", "定期更新タイマー設定完了", {"interval_ms": 100})
         
         # ログ設定
         log = self.query_one("#execution_log", Log)
         log.write_line("トレースビューア開始")
+        self.debug_logger.info("TUI", "mount", "TraceViewer UI構築完了")
     
     def update_trace_display(self) -> None:
-        """トレース表示を更新"""
+        """トレース表示を更新（展開可能ツリー対応）"""
         if self.is_paused:
             return
             
-        # 新しいトレースエントリを取得
-        recent_entries = self.trace_logger.get_recent_entries(50)
-        
-        if len(recent_entries) > self.last_processed_entry + 1:
-            # 新しいエントリを処理
-            for i in range(self.last_processed_entry + 1, len(recent_entries)):
-                entry = recent_entries[i]
-                self.process_trace_entry(entry)
+        try:
+            # 新しいトレースエントリを取得
+            recent_entries = self.trace_logger.get_recent_entries(50)
             
-            self.last_processed_entry = len(recent_entries) - 1
-            self.current_trace_count = len(recent_entries)
+            if len(recent_entries) > self.last_processed_entry + 1:
+                # 新しいエントリを処理
+                new_entries = recent_entries[self.last_processed_entry + 1:]
+                
+                self.debug_logger.log_trace_update(len(recent_entries), len(new_entries))
+                
+                # 展開可能ツリーを構築/更新
+                self.build_expandable_tree(new_entries)
+                
+                # Textualツリーを更新
+                self.refresh_textual_tree()
+                
+                # 従来の処理も実行（データテーブル、ログ）
+                for entry in new_entries:
+                    self.process_trace_entry(entry)
+                
+                self.last_processed_entry = len(recent_entries) - 1
+                self.current_trace_count = len(recent_entries)
+                
+        except Exception as e:
+            self.debug_logger.log_error_with_traceback(e, "update_trace_display",
+                last_processed=self.last_processed_entry,
+                paused=self.is_paused)
     
     def process_trace_entry(self, entry: TraceEntry) -> None:
         """トレースエントリを処理して表示を更新"""
@@ -304,6 +450,216 @@ class TraceViewer(App):
             if len(input_str) > 50:
                 input_str = input_str[:47] + "..."
             return f"{operation}: {input_str}"
+
+    def build_expandable_tree(self, trace_entries: List[TraceEntry]) -> None:
+        """トレースエントリから展開可能ツリーを構築"""
+        if not trace_entries:
+            self.debug_logger.trace("TREE", "build", "空のトレースエントリ - ツリー構築スキップ")
+            return
+            
+        try:
+            # ルートノードを作成
+            if self.root_trace_node is None:
+                self.root_trace_node = ExpandableTraceNode(
+                    operation="root",
+                    s_expr="S式実行ルート"
+                )
+                self.trace_node_map[()] = self.root_trace_node
+                self.debug_logger.debug("TREE", "build", "ルートノード作成完了")
+            
+            # 各トレースエントリを処理
+            for entry in trace_entries:
+                self.add_trace_entry_to_tree(entry)
+                
+            self.debug_logger.debug("TREE", "build", f"ツリー構築完了", {
+                "entries_processed": len(trace_entries),
+                "total_nodes": len(self.trace_node_map)
+            })
+            
+        except Exception as e:
+            self.debug_logger.log_error_with_traceback(e, "build_expandable_tree",
+                entries_count=len(trace_entries),
+                existing_nodes=len(self.trace_node_map))
+    
+    def add_trace_entry_to_tree(self, entry: TraceEntry) -> None:
+        """トレースエントリをツリーに追加"""
+        path_tuple = tuple(entry.path)
+        
+        # 既存ノードをチェック
+        if path_tuple in self.trace_node_map:
+            node = self.trace_node_map[path_tuple]
+            node.set_execution_status(
+                "completed" if entry.metadata.error is None else "error",
+                entry.duration_ms,
+                entry.output
+            )
+            node.trace_entry = entry
+            return
+        
+        # 新しいノードを作成
+        s_expr_str = self.extract_s_expr_from_entry(entry)
+        node = ExpandableTraceNode(
+            operation=entry.operation,
+            s_expr=s_expr_str
+        )
+        node.trace_entry = entry
+        node.path = entry.path.copy()
+        
+        # 実行状態を設定
+        if entry.duration_ms > 0:
+            status = "completed" if entry.metadata.error is None else "error"
+        else:
+            status = "running"
+        node.set_execution_status(status, entry.duration_ms, entry.output)
+        
+        # 親ノードを探して追加
+        parent_path = tuple(entry.path[:-1]) if entry.path else ()
+        parent_node = self.trace_node_map.get(parent_path, self.root_trace_node)
+        
+        if parent_node:
+            parent_node.add_child(node)
+            self.trace_node_map[path_tuple] = node
+    
+    def extract_s_expr_from_entry(self, entry: TraceEntry) -> str:
+        """トレースエントリからS式文字列を抽出"""
+        if isinstance(entry.input, dict) and "s_expr" in entry.input:
+            return str(entry.input["s_expr"])
+        elif isinstance(entry.input, list) and len(entry.input) > 0:
+            if len(entry.input) == 1:
+                return f"({entry.input[0]})"
+            else:
+                args = " ".join(str(arg) for arg in entry.input[1:])
+                return f"({entry.input[0]} {args})"
+        else:
+            return str(entry.input)
+    
+    def refresh_textual_tree(self) -> None:
+        """TextualのTreeウィジェットを更新"""
+        tree_widget = self.query_one("#s_expr_tree", Tree)
+        tree_widget.clear()
+        
+        if self.root_trace_node:
+            self.populate_textual_tree_node(tree_widget.root, self.root_trace_node)
+    
+    def populate_textual_tree_node(self, textual_node, trace_node: ExpandableTraceNode) -> None:
+        """TextualのTreeNodeに展開可能ノードの内容を設定"""
+        # ノードラベルを設定
+        textual_node.set_label(trace_node.display_label)
+        trace_node.textual_node = textual_node
+        
+        # 展開されている場合のみ子ノードを追加
+        if trace_node.is_expanded:
+            for child_trace_node in trace_node.children:
+                child_textual_node = textual_node.add("")
+                self.populate_textual_tree_node(child_textual_node, child_trace_node)
+    
+    def find_trace_node_by_textual_node(self, textual_node) -> Optional[ExpandableTraceNode]:
+        """TextualのNodeから対応するTraceNodeを検索"""
+        if not self.root_trace_node:
+            return None
+            
+        def search_recursive(trace_node: ExpandableTraceNode) -> Optional[ExpandableTraceNode]:
+            if trace_node.textual_node == textual_node:
+                return trace_node
+            for child in trace_node.children:
+                result = search_recursive(child)
+                if result:
+                    return result
+            return None
+        
+        return search_recursive(self.root_trace_node)
+
+    def action_toggle_expansion(self) -> None:
+        """Spaceキー: 選択ノードの展開/折りたたみ切り替え"""
+        self.debug_logger.log_key_event("Space", "toggle_expansion")
+        
+        tree_widget = self.query_one("#s_expr_tree", Tree)
+        cursor_node = tree_widget.cursor_node
+        
+        if cursor_node:
+            trace_node = self.find_trace_node_by_textual_node(cursor_node)
+            if trace_node and trace_node.children:
+                old_state = trace_node.is_expanded
+                trace_node.toggle_expansion()
+                self.refresh_textual_tree()
+                
+                # ステータス更新
+                expansion_status = "展開" if trace_node.is_expanded else "折りたたみ"
+                self.notify(f"ノード{expansion_status}: {trace_node.operation}")
+                
+                self.debug_logger.log_node_operation("toggle_expansion", trace_node.path, 
+                    f"{trace_node.operation}: {old_state} → {trace_node.is_expanded}",
+                    children_count=len(trace_node.children))
+            else:
+                self.debug_logger.debug("KEY", "toggle_expansion", "選択ノードに子がないため展開/折りたたみ不可")
+        else:
+            self.debug_logger.debug("KEY", "toggle_expansion", "カーソルノードが選択されていません")
+    
+    def action_select_node(self) -> None:
+        """Enterキー: ノード選択とトレース詳細表示"""
+        self.debug_logger.log_key_event("Enter", "select_node")
+        
+        tree_widget = self.query_one("#s_expr_tree", Tree)
+        cursor_node = tree_widget.cursor_node
+        
+        if cursor_node:
+            trace_node = self.find_trace_node_by_textual_node(cursor_node)
+            if trace_node:
+                self.selected_node = trace_node
+                self.show_node_details(trace_node)
+                self.notify(f"選択: {trace_node.operation}")
+                
+                self.debug_logger.log_node_operation("select", trace_node.path,
+                    f"ノード選択: {trace_node.operation}",
+                    status=trace_node.execution_status,
+                    duration_ms=trace_node.duration_ms)
+            else:
+                self.debug_logger.debug("KEY", "select_node", "対応するTraceNodeが見つかりません")
+        else:
+            self.debug_logger.debug("KEY", "select_node", "カーソルノードが選択されていません")
+    
+    def action_navigate_up(self) -> None:
+        """上矢印キー: ツリー内で上に移動"""
+        tree_widget = self.query_one("#s_expr_tree", Tree)
+        tree_widget.action_cursor_up()
+    
+    def action_navigate_down(self) -> None:
+        """下矢印キー: ツリー内で下に移動"""
+        tree_widget = self.query_one("#s_expr_tree", Tree)
+        tree_widget.action_cursor_down()
+    
+    def show_node_details(self, node: ExpandableTraceNode) -> None:
+        """選択されたノードの詳細を表示"""
+        table = self.query_one("#trace_details", DataTable)
+        
+        # テーブルをクリアして選択ノードの詳細を表示
+        table.clear()
+        
+        if node.trace_entry:
+            entry = node.trace_entry
+            
+            # 基本情報
+            table.add_row("操作", entry.operation)
+            table.add_row("入力", str(entry.input)[:100])
+            table.add_row("出力", str(entry.output)[:100])
+            table.add_row("実行時間", f"{entry.duration_ms:.1f}ms")
+            table.add_row("状態", node.execution_status)
+            table.add_row("パス", str(entry.path))
+            
+            # MCP情報があれば表示
+            if hasattr(entry.metadata, 'mcp_server') and entry.metadata.mcp_server:
+                table.add_row("MCPサーバー", entry.metadata.mcp_server)
+                table.add_row("MCPツール", getattr(entry.metadata, 'mcp_tool', 'unknown'))
+                mcp_duration = getattr(entry.metadata, 'mcp_duration_ms', 0)
+                table.add_row("MCP実行時間", f"{mcp_duration:.1f}ms")
+            
+            # エラー情報
+            if entry.metadata.error:
+                table.add_row("エラー", str(entry.metadata.error)[:200])
+        else:
+            table.add_row("情報", "トレースエントリなし")
+            table.add_row("子ノード数", str(len(node.children)))
+            table.add_row("展開状態", "展開" if node.is_expanded else "折りたたみ")
     
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """ボタンクリック処理"""
@@ -316,33 +672,59 @@ class TraceViewer(App):
     
     async def execute_s_expression(self) -> None:
         """S式を実行"""
+        start_time = time.time()
         input_widget = self.query_one("#s_expr_input", Input)
         s_expr_text = input_widget.value.strip()
         
+        self.debug_logger.info("EVAL", "start", f"S式実行開始", {"s_expr": s_expr_text})
+        
         if not s_expr_text:
+            self.debug_logger.warn("EVAL", "empty", "空のS式入力")
             return
         
         status = self.query_one("#status_display", Static)
         status.update("実行中...")
+        self.debug_logger.debug("UI", "status_update", "ステータス更新: 実行中")
         
         try:
             # トレースログをクリア
             self.trace_logger.clear()
             self.clear_display()
+            self.debug_logger.debug("EVAL", "clear", "トレースログとUI表示をクリア")
             
             # S式をパースして実行
+            parse_start = time.time()
             parsed_expr = parse_s_expression(s_expr_text)
+            parse_duration = (time.time() - parse_start) * 1000
+            self.debug_logger.log_performance("parse", parse_duration, {"parsed": str(parsed_expr)})
+            
+            eval_start = time.time()
             result = self.evaluator.evaluate_with_context(parsed_expr, self.env)
+            eval_duration = (time.time() - eval_start) * 1000
+            self.debug_logger.log_s_expr_evaluation(s_expr_text, "evaluate", result, duration_ms=eval_duration)
             
             status.update(f"完了: {result}")
+            self.debug_logger.debug("UI", "status_update", f"ステータス更新: 完了", {"result": str(result)})
             
             log = self.query_one("#execution_log", Log)
             log.write_line(f"実行完了: {result}")
             
+            total_duration = (time.time() - start_time) * 1000
+            self.debug_logger.log_performance("execute_total", total_duration, {
+                "s_expr": s_expr_text,
+                "result": str(result),
+                "parse_ms": parse_duration,
+                "eval_ms": eval_duration
+            })
+            
         except Exception as e:
+            error_duration = (time.time() - start_time) * 1000
             status.update(f"エラー: {e}")
             log = self.query_one("#execution_log", Log)
             log.write_line(f"実行エラー: {e}")
+            
+            self.debug_logger.log_error_with_traceback(e, "execute_s_expression", 
+                s_expr=s_expr_text, duration_ms=error_duration)
     
     async def step_execute(self) -> None:
         """ステップ実行（未実装）"""
@@ -396,8 +778,38 @@ class TraceViewer(App):
     def action_back_to_workspace(self) -> None:
         """ワークスペースに戻る"""
         # トレースビューアを終了してメインアプリのワークスペースタブに戻る
+        self.debug_logger.info("UI", "exit", "ワークスペースに戻る")
         self.notify("ワークスペースに戻ります...")
+        self.debug_logger.shutdown()
         self.exit()
+    
+    def action_toggle_debug_level(self) -> None:
+        """Dキー: デバッグログレベルを切り替え"""
+        from .debug_logger import DebugLogLevel
+        
+        current_level = self.debug_logger.min_level
+        levels = list(DebugLogLevel)
+        current_index = levels.index(current_level)
+        next_index = (current_index + 1) % len(levels)
+        new_level = levels[next_index]
+        
+        self.debug_logger.set_log_level(new_level)
+        self.notify(f"デバッグレベル: {new_level.name}")
+        self.debug_logger.info("UI", "debug_level", f"デバッグレベル変更: {current_level.name} → {new_level.name}")
+    
+    def action_show_debug_log(self) -> None:
+        """Lキー: 最近のデバッグログをコンソールに表示"""
+        recent_logs = self.debug_logger.get_recent_logs(20)
+        
+        log_widget = self.query_one("#execution_log", Log)
+        log_widget.write_line("=== 最近のデバッグログ ===")
+        
+        for entry in recent_logs:
+            formatted = self.debug_logger._format_message(entry)
+            log_widget.write_line(formatted)
+            
+        log_widget.write_line("=== デバッグログ終了 ===")
+        self.debug_logger.info("UI", "show_log", f"デバッグログ表示: {len(recent_logs)}件")
 
 
 

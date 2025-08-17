@@ -113,6 +113,22 @@ class ContextualEvaluator:
         op = expr[0]
         # 条件分岐や複雑な制御構造では文脈評価を行う
         return op in ['if', 'cond', 'when', 'unless']
+
+    def _format_s_expression_for_trace(self, expr: Any) -> str:
+        """S式をトレース表示用に文字列フォーマット"""
+        if isinstance(expr, str):
+            return f'"{expr}"' if ' ' in expr else expr
+        elif isinstance(expr, list):
+            if not expr:
+                return "()"
+            
+            formatted_items = []
+            for item in expr:
+                formatted_items.append(self._format_s_expression_for_trace(item))
+            
+            return f"({' '.join(formatted_items)})"
+        else:
+            return str(expr)
     
     @traceable(name="contextual_llm_evaluation")
     def _evaluate_contextually(self, expr: SExpression, env: Environment, basic_result: Any) -> Any:
