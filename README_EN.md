@@ -17,7 +17,10 @@ This system provides an explainable agent architecture that executes tasks throu
 - **Explainability**: Explicit execution plans through S-expressions
 - **User Control**: Review and edit generated S-expressions
 - **Context Awareness**: S-expression evaluation considering overall task context
-- **MCP Ready**: Designed for future Model Context Protocol (MCP) extensions
+- **Full MCP Integration**: External tool connectivity via Model Context Protocol (MCP)
+- **Execution Tracing**: Detailed execution history and MCP call visualization
+- **Auto-Recovery**: Automatic LLM-based regeneration for syntax errors
+- **TUI Support**: Rich text user interface with real-time feedback
 - **LangChain Integration**: Tracing capabilities via langchain/langgraph
 
 ## Setup
@@ -99,18 +102,41 @@ To use Model Context Protocol (MCP) compatible tools:
 ### Basic Usage
 
 ```bash
-# Start the system
-uv run python -m s_style_agent.cli.main
+# TUI mode (default, recommended)
+uv run python main.py
+
+# Traditional CLI mode (for testing/debugging)
+uv run python main.py --cli
+
+# Trace viewer standalone
+uv run python main.py --trace-only
 ```
 
-### CLI Commands
+### TUI Mode (Recommended)
+
+Rich interface with 4 tabs:
+
+1. **Dashboard**: System status & quick actions
+2. **Workspace**: S-expression generation, execution & real-time tracing
+3. **History**: Session history & tool management
+4. **Settings**: LLM, MCP & logging configuration
+
+**Keyboard Shortcuts**:
+- `Tab/Shift+Tab`: Switch tabs
+- `F1`: Help / `F2`: Generate / `F3`: History / `F4`: Settings
+- `F5`: Execute / `F6`: Step / `F7`: Edit / `F8`: Save
+- `Ctrl+Q`: Quit
+
+### CLI Mode (Testing)
 
 - `/help` - Display help
 - `/generate` - Generate S-expression using LLM
 - `/parse` - Check S-expression syntax
 - `/execute` - Execute S-expression
+- `/trace` - Show execution trace
 - `/history` - Show session history
 - `/tools` - List available tools
+- `/tui` - Switch to TUI mode
 - `/exit` - Exit system
 
 ### Usage Examples
@@ -138,10 +164,21 @@ Result: Done
 
 ### Available Tools
 
+#### Built-in Tools
 - `(notify "message")` - User notification
-- `(calc "expression")` - Mathematical calculation
-- `(search "query")` - Information search
-- `(db-query "query")` - Database query
+- `(calc "expression")` - Mathematical calculation (SymPy)
+- `(math "expression" "operation" "var")` - Symbolic mathematics
+- `(step_math "expression" "operation" "var")` - Step-by-step mathematical solving
+- `(ask_user "question" "var_name" "type")` - User interaction
+
+#### MCP Tools (Auto-available)
+- `(search "query")` - Brave search engine
+- Other MCP provider tools are automatically integrated
+
+#### Advanced Features
+- **Auto Error Recovery**: LLM automatically fixes syntax errors in S-expressions
+- **Real-time Tracing**: Detailed execution logs and MCP call monitoring
+- **Asynchronous Execution**: True parallel processing with `(par ...)`
 
 ## Architecture
 
@@ -229,6 +266,24 @@ The system includes Model Context Protocol integration for extending capabilitie
 ## License
 
 [Add your license information here]
+
+## Latest Features (v1.1.0)
+
+### ✅ Completed
+- **MCP Trace Display**: Detailed MCP call status in execution traces
+- **Auto Error Recovery**: LLM-based automatic regeneration for S-expression syntax errors
+- **TUI Integration**: Rich text user interface with real-time feedback
+- **Unified Architecture**: Shared processing foundation for CLI/TUI
+
+### Example (Auto Recovery)
+
+```
+Input: (search "curry"  # Missing bracket
+→ [S-expr Eval] Error - Expected )
+→ [S-expr Eval] Sending error to LLM for regeneration...
+→ [S-expr Eval] Regenerated: (search "curry")
+→ ✅ Success: Search results...
+```
 
 ## Acknowledgments
 
