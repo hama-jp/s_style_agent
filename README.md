@@ -17,7 +17,10 @@ S式を応用した説明可能なエージェントシステムの試作実装�
 - **説明可能性**: S式による明示的な実行計画
 - **ユーザー制御**: 生成されたS式の確認・編集が可能
 - **文脈考慮**: タスク全体の文脈を考慮したS式評価
-- **MCP対応設計**: 将来的なMCP（Model Context Protocol）拡張に対応
+- **MCP完全統合**: Model Context Protocol（MCP）による外部ツール連携
+- **実行トレース**: 詳細な実行履歴とMCP呼び出し状況の可視化
+- **自動修復機能**: 構文エラー時のLLMによる自動再生成
+- **TUI対応**: リッチなテキストユーザーインターフェース
 - **langchain統合**: langchain/langgraphによるトレース機能
 
 ## セットアップ
@@ -55,15 +58,7 @@ export LLM_API_KEY="dummy"
 
 ```bash
 export LLM_BASE_URL="https://api.openai.com/v1"
-export LLM_MODEL_NAME="gpt-4"
-export LLM_API_KEY="your-openai-api-key-here"
-```
-
-または GPT-3.5 Turbo の場合：
-
-```bash
-export LLM_BASE_URL="https://api.openai.com/v1"
-export LLM_MODEL_NAME="gpt-3.5-turbo"
+export LLM_MODEL_NAME="gpt-4o-mini"
 export LLM_API_KEY="your-openai-api-key-here"
 ```
 
@@ -99,18 +94,41 @@ Model Context Protocol（MCP）対応のツールを使用する場合：
 ### 基本的な使い方
 
 ```bash
-# システムを起動
+# TUIモード（デフォルト・推奨）
 uv run python main.py
+
+# 従来のCLIモード（テスト・デバッグ用）
+uv run python main.py --cli
+
+# トレースビューア単独起動
+uv run python main.py --trace-only
 ```
 
-### CLIコマンド
+### TUIモード（推奨）
+
+4つのタブで構成されたリッチなインターフェース：
+
+1. **ダッシュボード**: システム状態・クイックアクション
+2. **ワークスペース**: S式生成・実行・リアルタイムトレース
+3. **履歴管理**: セッション履歴・ツール管理
+4. **システム設定**: LLM・MCP・ログ設定
+
+**キーボードショートカット**:
+- `Tab/Shift+Tab`: タブ切り替え
+- `F1`: ヘルプ / `F2`: S式生成 / `F3`: 履歴 / `F4`: 設定
+- `F5`: 実行 / `F6`: ステップ / `F7`: 編集 / `F8`: 保存
+- `Ctrl+Q`: 終了
+
+### CLIモード（テスト用）
 
 - `/help` - ヘルプを表示
 - `/generate` - LLMでS式を生成
 - `/parse` - S式の構文をチェック
 - `/execute` - S式を実行
+- `/trace` - 実行トレース表示
 - `/history` - セッション履歴を表示
 - `/tools` - 利用可能ツール一覧
+- `/tui` - TUIモードに切り替え
 - `/exit` - システムを終了
 
 ### 使用例
@@ -138,10 +156,21 @@ uv run python main.py
 
 ### 利用可能ツール
 
+#### 組み込みツール
 - `(notify "message")` - ユーザー通知
-- `(calc "expression")` - 数式計算
-- `(search "query")` - 情報検索
-- `(db-query "query")` - データベースクエリ
+- `(calc "expression")` - 数式計算（SymPy使用）
+- `(math "expression" "operation" "var")` - 記号数学処理
+- `(step_math "expression" "operation" "var")` - 段階的数学解法
+- `(ask_user "question" "var_name" "type")` - ユーザー対話
+
+#### MCPツール（自動利用可能）
+- `(search "query")` - Brave検索エンジン
+- 他のMCPプロバイダーのツールも自動統合
+
+#### 高度な機能
+- **自動エラー修復**: 構文エラー時にLLMが自動的にS式を修正
+- **リアルタイムトレース**: 実行過程とMCP呼び出しの詳細ログ
+- **非同期実行**: `(par ...)` による真の並列処理
 
 ## アーキテクチャ
 
@@ -217,10 +246,28 @@ MIT License
 
 プルリクエストや Issue の報告を歓迎します。
 
+## 最新の機能（v1.1.0）
+
+### ✅ 実装完了
+- **MCPトレース表示**: 実行トレースでMCP呼び出し状況を詳細表示
+- **自動エラー修復**: S式構文エラー時のLLMによる自動再生成
+- **TUI統合**: リッチなテキストユーザーインターフェース
+- **統一アーキテクチャ**: CLI/TUI共通の処理基盤
+
+### 実行例（自動修復）
+
+```
+入力: (search "カレー"  # 括弧不足
+→ [S式評価] エラー - Expected )
+→ [S式評価] エラー内容をLLMに送信して再生成を試行します...
+→ [S式評価] 再生成されたS式: (search "カレー")
+→ ✅ 成功: 検索結果...
+```
+
 ## 今後の予定
 
-- [ ] MCP（Model Context Protocol）統合
 - [ ] より多くの組み込みツール
 - [ ] Webインターフェース
-- [ ] 詳細なログ・監視機能
+- [ ] 分散実行対応
+- [ ] セキュリティ強化
 - [ ] パフォーマンス最適化
