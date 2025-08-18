@@ -25,6 +25,7 @@ class WorkspaceTab(Container):
         height: 1fr;
         layout: vertical;
         padding: 1;
+        overflow: hidden;
     }
     
     .input-section {
@@ -39,6 +40,7 @@ class WorkspaceTab(Container):
     .execution-section {
         height: 1fr;
         layout: horizontal;
+        overflow: hidden;
     }
     
     .trace-panel {
@@ -62,19 +64,19 @@ class WorkspaceTab(Container):
     }
     
     .input-area {
-        height: 4;
+        height: 2;
         margin: 1 0;
     }
     
     .input-controls {
-        height: 6;
+        height: 2;
         layout: horizontal;
         align: center middle;
         margin: 1 0;
     }
     
     .execution-controls {
-        height: 4;
+        height: 2;
         layout: horizontal;
         align: center middle;
         margin-bottom: 1;
@@ -86,14 +88,15 @@ class WorkspaceTab(Container):
     }
     
     .results-display {
-        height: 1fr;
+        height: 2fr;
         margin-top: 1;
     }
     
     Button {
         margin: 0 1;
         min-width: 8;
-        height: 3;
+        height: 2;
+        max-height: 2;
     }
     
     .status-display {
@@ -107,7 +110,7 @@ class WorkspaceTab(Container):
     }
     
     .button-controls {
-        height: 4;
+        height: 2;
         layout: horizontal;
         align: center middle;
         margin: 1 0;
@@ -129,7 +132,6 @@ class WorkspaceTab(Container):
         # 入力セクション
         with Container(classes="input-section"):
             yield Static("📝 S式入力・生成", classes="section-title")
-            
             # 入力モード選択
             with Horizontal(classes="input-controls"):
                 yield Static("入力モード:", classes="mode-selection")
@@ -426,6 +428,10 @@ class WorkspaceTab(Container):
         status_display.update("待機中...")
         
         self._app.notify("入力をクリアしました", severity="information")
+
+    async def clear_all_inputs(self) -> None:
+        """全入力をクリア（clear_inputのエイリアス）"""
+        await self.clear_input()
     
     async def focus_generation_input(self) -> None:
         """生成入力にフォーカス"""

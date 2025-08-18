@@ -213,6 +213,8 @@ class TraceViewer(App):
     
     Button {
         margin: 1;
+        height: 2;
+        max-height: 2;
     }
     
     #s_expr_input {
@@ -238,6 +240,12 @@ class TraceViewer(App):
         Binding("ctrl+w", "back_to_workspace", "ワークスペースに戻る"),
         Binding("d", "toggle_debug_level", "デバッグレベル切替"),
         Binding("l", "show_debug_log", "デバッグログ表示"),
+        # デバッグ制御キー
+        Binding("f5", "debug_continue", "実行継続 (F5)"),
+        Binding("f10", "debug_step_over", "ステップオーバー (F10)"),
+        Binding("f11", "debug_step_into", "ステップイン (F11)"),
+        Binding("shift+f11", "debug_step_out", "ステップアウト (Shift+F11)"),
+        Binding("b", "toggle_breakpoint", "ブレークポイント切替 (B)"),
     ]
     
     # リアクティブ変数
@@ -261,6 +269,11 @@ class TraceViewer(App):
         # デバッグログ機能
         from .debug_logger import get_debug_logger
         self.debug_logger = get_debug_logger()
+        
+        # デバッグ制御機能
+        from ..core.debug_controller import get_debug_controller
+        self.debug_controller = get_debug_controller()
+        self.debug_enabled = False
         self.debug_logger.info("TUI", "init", "TraceViewer初期化開始", {
             "trace_logger": str(type(self.trace_logger).__name__),
             "evaluator": str(type(self.evaluator).__name__)
@@ -784,7 +797,7 @@ class TraceViewer(App):
         self.exit()
     
     def action_toggle_debug_level(self) -> None:
-        """Dキー: デバッグログレベルを切り替え"""
+        """Dキー: デバッグログレベルを循環切り替え"""
         from .debug_logger import DebugLogLevel
         
         current_level = self.debug_logger.min_level
@@ -794,22 +807,210 @@ class TraceViewer(App):
         new_level = levels[next_index]
         
         self.debug_logger.set_log_level(new_level)
-        self.notify(f"デバッグレベル: {new_level.name}")
-        self.debug_logger.info("UI", "debug_level", f"デバッグレベル変更: {current_level.name} → {new_level.name}")
+        
+        # レベル別のアイコンで通知
+        level_icons = {
+            DebugLogLevel.TRACE: "🔍",
+            DebugLogLevel.DEBUG: "🐛", 
+            DebugLogLevel.INFO: "ℹ️",
+            DebugLogLevel.WARN: "⚠️",
+            DebugLogLevel.ERROR: "❌"
+        }
+        
+        icon = level_icons.get(new_level, "📝")
+        self.notify(f"{icon} デバッグレベル: {new_level.name}")
+        
+        # 即座にログを更新表示
+        log_widget = self.query_one("#execution_log", Log)
+        log_widget.write_line(f"🔄 ログレベル変更: {current_level.name} → {new_level.name}")
+        
+        self.debug_logger.info("UI", "level_change", f"{icon} {new_level.name}レベルに変更されました")
+        
+        # TRACEレベル時は特別なメッセージ
+        if new_level == DebugLogLevel.TRACE:
+            self.debug_logger.trace("UI", "level_change", "🔍 TRACEレベルに変更されました")
+        elif new_level == DebugLogLevel.ERROR:
+            self.debug_logger.error("UI", "visible", "❌ ERRORレベルなので表示されます")
     
     def action_show_debug_log(self) -> None:
-        """Lキー: 最近のデバッグログをコンソールに表示"""
-        recent_logs = self.debug_logger.get_recent_logs(20)
+        """Lキー: 詳細デバッグログを全画面表示"""
+        recent_logs = self.debug_logger.get_recent_logs(50)  # より多くのログを取得
         
         log_widget = self.query_one("#execution_log", Log)
-        log_widget.write_line("=== 最近のデバッグログ ===")
+        log_widget.clear()  # 既存ログをクリア
         
+        # ヘッダー情報
+        log_widget.write_line("🔍 === TUIデバッグログ (最新50件) ===")
+        log_widget.write_line(f"📊 ログレベル: {self.debug_logger.min_level.name}")
+        log_widget.write_line(f"📁 ログファイル: {self.debug_logger.log_file}")
+        log_widget.write_line(f"⏰ 取得時刻: {datetime.now().strftime('%H:%M:%S')}")
+        log_widget.write_line("")
+        
+        # ログレベル別統計
+        level_counts = {}
         for entry in recent_logs:
-            formatted = self.debug_logger._format_message(entry)
-            log_widget.write_line(formatted)
+            level_counts[entry.level.name] = level_counts.get(entry.level.name, 0) + 1
+        
+        if level_counts:
+            stats = ", ".join(f"{level}: {count}件" for level, count in level_counts.items())
+            log_widget.write_line(f"📈 統計: {stats}")
+            log_widget.write_line("")
+        
+        # ログエントリ表示
+        if recent_logs:
+            for i, entry in enumerate(recent_logs, 1):
+                formatted = self.debug_logger._format_message(entry)
+                log_widget.write_line(f"{i:2d}. {formatted}")
+        else:
+            log_widget.write_line("❌ ログエントリが見つかりません")
+            log_widget.write_line("💡 ヒント: 環境変数 S_STYLE_DEBUG_LEVEL=TRACE で詳細ログを有効化")
             
+        log_widget.write_line("")
+        log_widget.write_line("🎮 操作: D キー(レベル切替), L キー(更新), ESC (戻る)")
         log_widget.write_line("=== デバッグログ終了 ===")
-        self.debug_logger.info("UI", "show_log", f"デバッグログ表示: {len(recent_logs)}件")
+        
+        self.debug_logger.info("UI", "show_log", f"デバッグログ表示: {len(recent_logs)}件", {
+            "log_level": self.debug_logger.min_level.name,
+            "total_entries": len(self.debug_logger.entries)
+        })
+
+    
+    # デバッグ制御アクション
+    def action_debug_continue(self) -> None:
+        """F5キー: 実行継続"""
+        if self.debug_enabled:
+            self.debug_controller.continue_execution()
+            self.notify("実行継続")
+            self.debug_logger.info("DEBUG", "continue", "F5: 実行継続")
+        else:
+            self.notify("デバッグモードが無効です")
+    
+    def action_debug_step_over(self) -> None:
+        """F10キー: ステップオーバー"""
+        if self.debug_enabled:
+            self.debug_controller.step_over()
+            self.notify("ステップオーバー")
+            self.debug_logger.info("DEBUG", "step_over", "F10: ステップオーバー")
+        else:
+            self.notify("デバッグモードが無効です")
+    
+    def action_debug_step_into(self) -> None:
+        """F11キー: ステップイン"""
+        if self.debug_enabled:
+            self.debug_controller.step_into()
+            self.notify("ステップイン")
+            self.debug_logger.info("DEBUG", "step_into", "F11: ステップイン")
+        else:
+            self.notify("デバッグモードが無効です")
+    
+    def action_debug_step_out(self) -> None:
+        """Shift+F11キー: ステップアウト"""
+        if self.debug_enabled:
+            self.debug_controller.step_out()
+            self.notify("ステップアウト")
+            self.debug_logger.info("DEBUG", "step_out", "Shift+F11: ステップアウト")
+        else:
+            self.notify("デバッグモードが無効です")
+    
+    def action_toggle_breakpoint(self) -> None:
+        """Bキー: ブレークポイント切り替え"""
+        tree_widget = self.query_one("#s_expr_tree", Tree)
+        cursor_node = tree_widget.cursor_node
+        
+        if cursor_node:
+            trace_node = self.find_trace_node_by_textual_node(cursor_node)
+            if trace_node:
+                # 既存のブレークポイントをチェック
+                existing_bp = None
+                for bp in self.debug_controller.get_breakpoints():
+                    if bp.path == trace_node.path and bp.operation == trace_node.operation:
+                        existing_bp = bp
+                        break
+                
+                if existing_bp:
+                    # ブレークポイント削除
+                    self.debug_controller.remove_breakpoint(existing_bp.id)
+                    self.notify(f"ブレークポイント削除: {trace_node.operation}")
+                    self.debug_logger.info("DEBUG", "remove_breakpoint", 
+                        f"ブレークポイント削除: {trace_node.operation}", {"path": trace_node.path})
+                else:
+                    # ブレークポイント追加
+                    bp = self.debug_controller.add_breakpoint(trace_node.path, trace_node.operation)
+                    self.notify(f"ブレークポイント追加: {trace_node.operation}")
+                    self.debug_logger.info("DEBUG", "add_breakpoint", 
+                        f"ブレークポイント追加: {trace_node.operation}", {
+                            "path": trace_node.path, 
+                            "breakpoint_id": bp.id
+                        })
+                
+                # ツリー表示更新
+                self.refresh_textual_tree()
+            else:
+                self.notify("トレースノードが見つかりません")
+        else:
+            self.notify("ノードが選択されていません")
+    
+    def enable_debug_mode(self) -> None:
+        """デバッグモード有効化"""
+        self.debug_enabled = True
+        # AsyncContextualEvaluatorとの統合
+        if hasattr(self.evaluator, 'enable_debug_mode'):
+            self.evaluator.enable_debug_mode(self.debug_controller)
+        
+        # デバッグコールバック設定
+        self.debug_controller.set_debug_callbacks(
+            on_breakpoint_hit=self.on_breakpoint_hit,
+            on_step_complete=self.on_step_complete,
+            on_execution_paused=self.on_execution_paused
+        )
+        
+        self.debug_controller.start_debug_session()
+        self.notify("デバッグモード有効")
+        self.debug_logger.info("DEBUG", "enable", "デバッグモード有効化")
+    
+    def disable_debug_mode(self) -> None:
+        """デバッグモード無効化"""
+        self.debug_enabled = False
+        if hasattr(self.evaluator, 'disable_debug_mode'):
+            self.evaluator.disable_debug_mode()
+        
+        self.debug_controller.stop_debug_session()
+        self.notify("デバッグモード無効")
+        self.debug_logger.info("DEBUG", "disable", "デバッグモード無効化")
+    
+    async def on_breakpoint_hit(self, frame, breakpoint) -> None:
+        """ブレークポイントヒット時のコールバック"""
+        self.notify(f"ブレークポイント: {frame.operation}")
+        
+        # ブレークポイントの詳細をログに表示
+        log = self.query_one("#execution_log", Log)
+        log.write_line(f"🔴 ブレークポイントヒット: {frame.operation}")
+        log.write_line(f"   パス: {frame.path}")
+        log.write_line(f"   S式: {frame.s_expr}")
+        
+        self.debug_logger.warn("DEBUG", "breakpoint_hit", 
+            f"ブレークポイントヒット: {frame.operation}", {
+                "path": frame.path,
+                "breakpoint_id": breakpoint.id if breakpoint else None
+            })
+    
+    async def on_step_complete(self, frame) -> None:
+        """ステップ実行完了時のコールバック"""
+        self.notify(f"ステップ完了: {frame.operation}")
+        self.debug_logger.debug("DEBUG", "step_complete", f"ステップ完了: {frame.operation}")
+    
+    async def on_execution_paused(self, frame) -> None:
+        """実行一時停止時のコールバック"""
+        self.notify("実行一時停止")
+        self.debug_logger.info("DEBUG", "paused", "実行一時停止")
+    
+    def get_debug_status(self) -> str:
+        """デバッグ状態文字列取得"""
+        if not self.debug_enabled:
+            return "デバッグ無効"
+        
+        state = self.debug_controller.get_debug_state()
+        return f"デバッグ: {state['state']} | {state['step_mode']}"
 
 
 

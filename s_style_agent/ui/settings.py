@@ -23,6 +23,7 @@ class SettingsTab(Container):
         height: 1fr;
         layout: horizontal;
         padding: 1;
+        overflow: hidden;
     }
     
     .llm-panel {
@@ -83,6 +84,8 @@ class SettingsTab(Container):
     
     Button {
         margin: 0 1;
+        height: 2;
+        max-height: 2;
     }
     
     .mcp-section {

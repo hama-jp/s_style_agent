@@ -23,6 +23,7 @@ class DashboardTab(Container):
         height: 1fr;
         layout: vertical;
         padding: 1;
+        overflow: hidden;
     }
     
     .status-section {
@@ -69,7 +70,9 @@ class DashboardTab(Container):
     
     Button {
         margin: 0 1;
-        width: 12;
+        width: 8;
+        height: 2;
+        max-height: 2;
     }
     """
     
@@ -186,17 +189,11 @@ class DashboardTab(Container):
             await self._app.action_show_history()
         elif button_id == "quick_tools":
             await self.show_tools_info()
-        elif button_id == "quick_settings":
-            await self._app.action_show_settings()
-        elif button_id == "quick_trace":
-            await self._app.action_show_trace()
         elif button_id == "quick_benchmark":
             await self.run_quick_benchmark()
         elif button_id == "quick_mcp":
             await self.show_mcp_status()
-        elif button_id == "quick_help":
-            await self._app.action_show_help()
-    
+
     async def show_tools_info(self) -> None:
         """ツール情報を表示"""
         # TODO: ツール一覧表示を実装

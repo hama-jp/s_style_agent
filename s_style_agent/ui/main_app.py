@@ -12,7 +12,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import (
     Header, Footer, Static, TabbedContent, TabPane, 
-    Button, Input, Label, DataTable, Log, Tree
+    Input, Label, DataTable, Log, Tree
 )
 from textual.binding import Binding
 from textual.reactive import reactive
@@ -37,12 +37,20 @@ class MainTUIApp(App):
     .main-container {
         height: 100vh;
         width: 100vw;
+        layout: vertical;
+        overflow: hidden;
+    }
+    
+    TabbedContent {
+        height: 1fr;
+        width: 1fr;
+        overflow: hidden;
     }
     
     .tab-content {
         height: 1fr;
         width: 1fr;
-        margin: 1;
+        overflow: hidden;
     }
     
     .status-bar {
@@ -53,16 +61,7 @@ class MainTUIApp(App):
         padding: 1;
     }
     
-    .quick-actions {
-        layout: horizontal;
-        height: auto;
-        align: center middle;
-        margin: 1;
-    }
-    
-    Button {
-        margin: 0 1;
-    }
+
     
     .system-info {
         text-align: center;
@@ -72,20 +71,14 @@ class MainTUIApp(App):
     """
     
     BINDINGS = [
-        Binding("ctrl+q", "quit", "終了", priority=True),
-        Binding("f1", "show_help", "ヘルプ"),
+        Binding("ctrl+w", "focus_workspace", "ワークスペース"),
         Binding("f2", "quick_generate", "S式生成"),
         Binding("f3", "focus_execution", "実行"),
-        Binding("f4", "save_current", "保存"),
-        Binding("f5", "show_history", "履歴"),
-        Binding("f6", "show_settings", "設定"),
-        Binding("f7", "toggle_mode", "モード切替"),
-        Binding("f8", "run_benchmark", "ベンチマーク"),
+        Binding("ctrl+l", "clear_all", "クリア"),
         Binding("ctrl+g", "focus_generation", "生成モード"),
         Binding("ctrl+e", "focus_execution", "実行モード"),
         Binding("ctrl+h", "focus_history", "履歴表示"),
-        Binding("ctrl+t", "show_trace", "トレース表示"),
-        Binding("ctrl+w", "focus_workspace", "ワークスペース"),
+        Binding("ctrl+q", "quit", "終了", priority=True),
     ]
     
     # リアクティブ変数
@@ -130,17 +123,7 @@ class MainTUIApp(App):
                     yield SettingsTab(app=self)
             
             # クイックアクションバー
-            with Container(classes="quick-actions"):
-                yield Button("生成 (F2)", id="generate_btn", variant="success")
-                yield Button("実行 (F3)", id="execute_btn", variant="warning")
-                yield Button("保存 (F4)", id="save_btn")
-                yield Button("履歴 (F5)", id="history_btn")
-                yield Button("設定 (F6)", id="settings_btn")
-                yield Button("モード切替 (F7)", id="toggle_mode_btn")
-                yield Button("ベンチマーク (F8)", id="benchmark_btn")
-                yield Button("終了 (Ctrl+Q)", id="quit_btn", variant="error")
-                yield Button("ヘルプ (F1)", id="help_btn", variant="primary")
-            
+
             # ステータスバー
             with Container(classes="status-bar"):
                 yield Static(f"モード: {self.current_mode} | MCP: {self.mcp_status} | ステータス: {self.system_status}", 
@@ -159,6 +142,26 @@ class MainTUIApp(App):
         
         # ウェルカムメッセージ
         self.notify("S式エージェントシステムが起動しました", severity="information")
+
+    
+    def on_tabbed_content_tab_activated(self, event) -> None:
+        """タブが切り替えられた時の処理"""
+        # レイアウトの強制再描画
+        self.refresh(layout=True)
+        
+        # 子ウィジェットも再描画
+        self.call_after_refresh(self._refresh_active_tab)
+
+    def _refresh_active_tab(self) -> None:
+        """アクティブなタブの再描画"""
+        try:
+            # TabbedContentウィジェットを探してアクティブタブを再描画
+            tabbed_content = self.query_one("TabbedContent")
+            if hasattr(tabbed_content, 'active_pane') and tabbed_content.active_pane:
+                tabbed_content.active_pane.refresh(layout=True)
+        except Exception:
+            # エラーが発生しても処理を継続
+            pass
     
     async def init_mcp_system(self) -> None:
         """MCPシステムの初期化"""
@@ -177,53 +180,8 @@ class MainTUIApp(App):
         status_text = f"モード: {self.current_mode} | MCP: {self.mcp_status} | ステータス: {self.system_status}"
         status_widget.update(status_text)
     
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        """ボタンクリック処理"""
-        button_id = event.button.id
-        
-        if button_id == "generate_btn":
-            await self.action_quick_generate()
-        elif button_id == "execute_btn":
-            await self.action_focus_execution()
-        elif button_id == "save_btn":
-            await self.action_save_current()
-        elif button_id == "history_btn":
-            await self.action_show_history()
-        elif button_id == "settings_btn":
-            await self.action_show_settings()
-        elif button_id == "toggle_mode_btn":
-            await self.action_toggle_mode()
-        elif button_id == "benchmark_btn":
-            await self.action_run_benchmark()
-        elif button_id == "quit_btn":
-            self.exit()
-        elif button_id == "help_btn":
-            await self.action_show_help()
-    
+
     # アクション実装
-    async def action_show_help(self) -> None:
-        """ヘルプを表示"""
-        help_text = """
-S式エージェントシステム - ヘルプ
-
-【キーボードショートカット】
-F1: ヘルプ表示      F2: S式生成      F3: 実行
-F4: 保存            F5: 履歴         F6: 設定
-F7: モード切替      F8: ベンチマーク
-
-Ctrl+G: 生成モード  Ctrl+E: 実行モード
-Ctrl+H: 履歴表示    Ctrl+T: トレース表示
-Ctrl+W: ワークスペース  Ctrl+Q: 終了
-
-【基本操作】
-1. ワークスペースタブでS式を入力・生成
-2. 実行ボタンまたはF3で実行
-3. 履歴タブで過去の実行結果を確認
-4. 設定タブでシステム設定を変更
-5. F7でモード切替、F8でベンチマーク実行
-        """
-        self.notify(help_text, title="ヘルプ", timeout=10)
-    
     async def action_quick_generate(self) -> None:
         """クイックS式生成"""
         # ワークスペースタブに切り替えて生成モードに
@@ -234,41 +192,18 @@ Ctrl+W: ワークスペース  Ctrl+Q: 終了
         workspace = self.query_one(WorkspaceTab)
         await workspace.focus_generation_input()
     
+    async def action_clear_all(self) -> None:
+        """全入力をクリア"""
+        # ワークスペースの入力フィールドをクリア
+        workspace = self.query_one(WorkspaceTab)
+        await workspace.clear_all_inputs()
+    
     async def action_show_history(self) -> None:
         """履歴表示"""
         tabbed_content = self.query_one(TabbedContent)
         tabbed_content.active = "history"
     
-    async def action_show_settings(self) -> None:
-        """設定表示"""
-        tabbed_content = self.query_one(TabbedContent)
-        tabbed_content.active = "settings"
-    
-    async def action_save_current(self) -> None:
-        """現在の内容を保存"""
-        tabbed_content = self.query_one(TabbedContent)
-        if tabbed_content.active == "workspace":
-            workspace = self.query_one(WorkspaceTab)
-            await workspace.save_current_content()
-        else:
-            self.notify("保存機能は現在ワークスペースタブでのみ利用可能です")
-    
-    async def action_toggle_mode(self) -> None:
-        """実行モードを切り替え"""
-        self.toggle_execution_mode()
-    
-    async def action_run_benchmark(self) -> None:
-        """ベンチマークを実行"""
-        self.notify("ベンチマークを実行中...")
-        try:
-            results = await self.run_benchmark()
-            self.notify(f"ベンチマーク完了: 同期={results.get('sync', 'N/A')}s, 非同期={results.get('async', 'N/A')}s")
-        except Exception as e:
-            self.notify(f"ベンチマーク実行エラー: {e}", severity="error")
-    
-    async def action_focus_generation(self) -> None:
-        """生成モードにフォーカス"""
-        await self.action_quick_generate()
+
     
     async def action_focus_execution(self) -> None:
         """実行モードにフォーカス"""
@@ -287,11 +222,7 @@ Ctrl+W: ワークスペース  Ctrl+Q: 終了
         tabbed_content.active = "workspace"
         self.notify("ワークスペースに切り替えました")
     
-    async def action_show_trace(self) -> None:
-        """トレース表示"""
-        # トレースビューアを起動
-        from .trace_viewer import launch_trace_viewer
-        await launch_trace_viewer(self.trace_logger)
+
     
     # 共通機能メソッド（AgentServiceへのデリゲート）
     async def evaluate_s_expression(self, s_expr: str, context: Optional[Dict] = None) -> Any:
